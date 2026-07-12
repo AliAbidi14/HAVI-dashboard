@@ -3,3 +3,6 @@ pandas
 numpy
 plotly
 streamlit-plotly-events
+geopandas
+scipy
+jenkspy
