@@ -30,7 +30,8 @@ CONTRIB_LONG_FILE = "HAVI_2_county_factor_contributions_long_v1.csv"
 st.markdown(
     """
     <style>
-    .main { background-color: #f8fafc; }
+    :root { color-scheme: light dark; }
+    .main, [data-testid="stAppViewContainer"] { background-color: #f8fafc; }
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     .havi-title {
         font-size: 44px; font-weight: 800; color: #172554; margin-bottom: 0px;
@@ -45,12 +46,35 @@ st.markdown(
         font-size: 15px; font-weight: bold; color: #172554; margin-top: 10px; margin-bottom: 6px;
     }
     .metric-card {
-        background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;
-        text-align: center; min-height: 112px; display: flex; flex-direction: column; justify-content: center;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px 12px;
+        text-align: center;
+        height: 132px;
+        min-height: 132px;
+        max-height: 132px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        overflow: hidden;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
-    .metric-label { color: #475569; font-size: 17px; font-weight: 800; margin-bottom: 8px; }
-    .metric-value { font-size: 34px; font-weight: 800; line-height: 1.1; }
+    .metric-label {
+        color: #475569;
+        font-size: clamp(13px, 1.05vw, 17px);
+        font-weight: 800;
+        line-height: 1.2;
+        margin-bottom: 8px;
+        overflow-wrap: anywhere;
+    }
+    .metric-value {
+        font-weight: 800;
+        line-height: 1.08;
+        overflow-wrap: anywhere;
+        word-break: normal;
+    }
     .interpret-card {
         background: white; border-left: 6px solid #172554; border-radius: 12px; padding: 16px 18px;
         border-top: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;
@@ -73,10 +97,10 @@ st.markdown(
     }
     .havi-variable-table tr:nth-child(even) { background-color: #fafafa; }
     .havi-variable-table th:nth-child(1), .havi-variable-table td:nth-child(1) { width: 18%; }
-    .havi-variable-table th:nth-child(2), .havi-variable-table td:nth-child(2) { width: 15%; }
-    .havi-variable-table th:nth-child(3), .havi-variable-table td:nth-child(3) { width: 17%; }
-    .havi-variable-table th:nth-child(4), .havi-variable-table td:nth-child(4) { width: 18%; }
-    .havi-variable-table th:nth-child(5), .havi-variable-table td:nth-child(5) { width: 32%; }
+    .havi-variable-table th:nth-child(2), .havi-variable-table td:nth-child(2) { width: 16%; }
+    .havi-variable-table th:nth-child(3), .havi-variable-table td:nth-child(3) { width: 18%; }
+    .havi-variable-table th:nth-child(4), .havi-variable-table td:nth-child(4) { width: 20%; }
+    .havi-variable-table th:nth-child(5), .havi-variable-table td:nth-child(5) { width: 28%; }
     .havi-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     .havi-table th {
         font-size: 17px; font-weight: 700; background-color: #f1f5f9; color: #172554;
@@ -84,6 +108,76 @@ st.markdown(
     }
     .havi-table td { font-size: 14px; padding: 12px; border: 1px solid #e2e8f0; }
     .havi-table tr:nth-child(even) { background-color: #fafafa; }
+
+    /* Keep all summary cards equal-height and readable on narrower screens. */
+    @media (max-width: 1200px) {
+        .metric-card {
+            height: 142px;
+            min-height: 142px;
+            max-height: 142px;
+            padding: 14px 10px;
+        }
+        .metric-value { font-size: 22px !important; }
+    }
+
+    @media (max-width: 768px) {
+        .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
+        .havi-title { font-size: 32px; }
+        .havi-subtitle, .section-subtitle { font-size: 15px; }
+        .metric-card {
+            height: 128px;
+            min-height: 128px;
+            max-height: 128px;
+        }
+        .metric-label { font-size: 14px; }
+        .metric-value { font-size: 20px !important; }
+    }
+
+    /* Dark-mode support for the page, cards, tables, and embedded Plotly text. */
+    @media (prefers-color-scheme: dark) {
+        html, body, .main, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+        }
+        .havi-title, .havi-subtitle, .section-subtitle, .sidebar-label,
+        .metric-label, .interpret-card, .soft-card,
+        .havi-variable-table td, .havi-table td,
+        [data-testid="stMarkdownContainer"], [data-testid="stCaptionContainer"] {
+            color: #f8fafc !important;
+        }
+        .metric-card, .interpret-card, .soft-card {
+            background: #111827 !important;
+            border-color: #334155 !important;
+            box-shadow: none !important;
+        }
+        /* Keep the Rural-Urban card fully legible in dark mode. */
+        .metric-card.force-dark-white .metric-value,
+        .metric-card.force-dark-white .metric-value span {
+            color: #ffffff !important;
+        }
+        .havi-variable-table th, .havi-table th {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border-color: #475569 !important;
+        }
+        .havi-variable-table td, .havi-table td {
+            background-color: #111827 !important;
+            border-color: #334155 !important;
+        }
+        .havi-variable-table tr:nth-child(even) td,
+        .havi-table tr:nth-child(even) td {
+            background-color: #172033 !important;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #111827 !important;
+        }
+        [data-testid="stSidebar"] * { color: #f8fafc !important; }
+        .js-plotly-plot .plotly text { fill: #f8fafc !important; }
+        .js-plotly-plot .plotly .bg { fill: rgba(0,0,0,0) !important; }
+        .js-plotly-plot .plotly .xgrid,
+        .js-plotly-plot .plotly .ygrid { stroke: #334155 !important; }
+        .js-plotly-plot .plotly .zerolinelayer path { stroke: #e2e8f0 !important; }
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -191,10 +285,10 @@ def normalize_vulnerability_text(value):
         return "Low Vulnerability"
     return text
 
-def render_metric(label, value, color="#172554", font_size=34):
+def render_metric(label, value, color="#172554", font_size=34, css_class=""):
     st.markdown(
         f"""
-        <div class="metric-card">
+        <div class="metric-card {css_class}">
             <div class="metric-label">{label}</div>
             <div class="metric-value" style="color:{color}; font-size:{font_size}px;">{value}</div>
         </div>
@@ -354,7 +448,7 @@ except FileNotFoundError:
 contrib_long = load_contrib_long()
 
 # -----------------------------
-# Reference medians
+# Reference medians and means
 # -----------------------------
 havi_reference_vars = [
     "HAVI", "HAVI Score", "disease_burden_composite",
@@ -369,6 +463,7 @@ havi_reference_vars = [
 ]
 havi_reference_vars = [c for c in havi_reference_vars if c in df.columns]
 NATIONAL_MEDIAN = df[havi_reference_vars].median(numeric_only=True).to_dict()
+NATIONAL_MEAN = df[havi_reference_vars].mean(numeric_only=True).to_dict()
 
 disease_var_map = {
     "arthritis_pct": "Arthritis",
@@ -386,6 +481,7 @@ disease_var_map = {
 }
 disease_cols = [c for c in disease_var_map if c in df.columns]
 DISEASE_MEDIAN = df[disease_cols].median(numeric_only=True).to_dict()
+DISEASE_MEAN = df[disease_cols].mean(numeric_only=True).to_dict()
 
 # -----------------------------
 # Header and sidebar
@@ -436,7 +532,7 @@ with col1:
 with col2:
     render_metric("HAVI Level", normalize_vulnerability_text(selected["HAVI Level"]), havi_color, font_size=24)
 with col3:
-    render_metric("National Rank (Out of 3144)", rank_text(selected["National Rank"]), "#172554")
+    render_metric("National Rank (Out of 3144)", rank_text(selected["National Rank"]), havi_color)
 with col4:
     lower_than = (
         100 - float(selected["National Percentile"])
@@ -449,14 +545,15 @@ with col4:
         f"{lower_than:.1f}%"
         if not pd.isna(lower_than)
         else "Not available",
-        "#172554"
+        havi_color
     )
 with col5:
     render_metric(
         "Rural-Urban Class",
         f"{ru_group}<br><span style='font-size:15px; font-weight:600; color:#64748b;'>{ru_detail}</span>",
         "#172554",
-        font_size=22
+        font_size=22,
+        css_class="force-dark-white"
     )
 
 st.markdown(
@@ -572,12 +669,13 @@ label_to_col = {
     "Federally Qualified Health Centers": "POS_FQHC_RATE"
 }
 
-def format_variable_value(label, col, row, median_dict):
+def format_variable_value(label, col, row, median_dict, mean_dict):
     if col is None or col not in df.columns:
-        return "Not available", "Not available"
+        return "Not available", "Not available", "Not available"
 
     value = safe_get(row, col)
     median = median_dict.get(col, np.nan)
+    mean = mean_dict.get(col, np.nan)
 
     pct_cols = {
         "ACS_PCT_AGE_ABOVE65", "ACS_PCT_AGE_0_4", "ACS_PCT_DISABLE", "pers_povty_pct_23",
@@ -587,21 +685,24 @@ def format_variable_value(label, col, row, median_dict):
     }
 
     if col in pct_cols:
-        return fmt_pct(value), fmt_pct(median)
+        return fmt_pct(value), fmt_pct(median), fmt_pct(mean)
     if col == "disease_burden_composite":
-        return fmt_score(value), fmt_score(median)
+        return fmt_score(value), fmt_score(median), fmt_score(mean)
     if col in ["POS_MEDIAN_DIST_CLINIC", "POS_MEDIAN_DIST_CLINIC_w"]:
-        return fmt_rate(value, "miles"), fmt_rate(median, "miles")
+        return fmt_rate(value, "miles"), fmt_rate(median, "miles"), fmt_rate(mean, "miles")
     if col in ["primary_care_providers_per_10k", "dentists_per_10k", "mental_health_providers_per_10k", "providers_per_10k"]:
-        return fmt_rate(value, "providers per 10,000 residents"), fmt_rate(median, "providers per 10,000 residents")
+        label_text = "providers per 10,000 residents"
+        return fmt_rate(value, label_text), fmt_rate(median, label_text), fmt_rate(mean, label_text)
     if col == "beds_per_1000":
-        return fmt_rate(value, "beds per 1,000 residents"), fmt_rate(median, "beds per 1,000 residents")
+        label_text = "beds per 1,000 residents"
+        return fmt_rate(value, label_text), fmt_rate(median, label_text), fmt_rate(mean, label_text)
     if col in ["hospitals_per_100k", "clinics_per_100k", "critical_access_per_100k"]:
-        return fmt_rate(value, "per 100,000 residents"), fmt_rate(median, "per 100,000 residents")
+        label_text = "per 100,000 residents"
+        return fmt_rate(value, label_text), fmt_rate(median, label_text), fmt_rate(mean, label_text)
     if col == "POS_FQHC_RATE":
-        return fmt_fqhc_per_100k(value), fmt_fqhc_per_100k(median)
+        return fmt_fqhc_per_100k(value), fmt_fqhc_per_100k(median), fmt_fqhc_per_100k(mean)
 
-    return fmt_score(value), fmt_score(median)
+    return fmt_score(value), fmt_score(median), fmt_score(mean)
 
 def hover_details_for_factor(label):
     clean_label = str(label).strip()
@@ -609,25 +710,33 @@ def hover_details_for_factor(label):
     if clean_label in ["Transportation Vulnerability", "Transportation Vulnerability (Vehicle & Transit)"]:
         no_vehicle = fmt_pct(safe_get(selected, "ACS_PCT_HU_NO_VEH"))
         no_vehicle_med = fmt_pct(NATIONAL_MEDIAN.get("ACS_PCT_HU_NO_VEH", np.nan))
+        no_vehicle_mean = fmt_pct(NATIONAL_MEAN.get("ACS_PCT_HU_NO_VEH", np.nan))
         transit = fmt_pct(safe_get(selected, "ACS_PCT_PUBL_TRANSIT"))
         transit_med = fmt_pct(NATIONAL_MEDIAN.get("ACS_PCT_PUBL_TRANSIT", np.nan))
+        transit_mean = fmt_pct(NATIONAL_MEAN.get("ACS_PCT_PUBL_TRANSIT", np.nan))
         return (
             "Engineered from no-vehicle access and public transit use.",
             f"No vehicle: {no_vehicle}; Public transit use: {transit}",
-            f"No vehicle median: {no_vehicle_med}; Public transit median: {transit_med}"
+            f"No vehicle median: {no_vehicle_med}; Public transit median: {transit_med}",
+            f"No vehicle mean: {no_vehicle_mean}; Public transit mean: {transit_mean}"
         )
 
     if clean_label in ["Disease Burden", "Chronic Disease Burden"]:
-        county_value, median_value = format_variable_value(clean_label, "disease_burden_composite", selected, NATIONAL_MEDIAN)
+        county_value, median_value, mean_value = format_variable_value(
+            clean_label, "disease_burden_composite", selected, NATIONAL_MEDIAN, NATIONAL_MEAN
+        )
         return (
             "Composite disease burden variable. See Disease Burden Variables below for component outcomes.",
             county_value,
-            median_value
+            median_value,
+            mean_value
         )
 
     col = label_to_col.get(clean_label)
-    county_value, median_value = format_variable_value(clean_label, col, selected, NATIONAL_MEDIAN)
-    return ("", county_value, median_value)
+    county_value, median_value, mean_value = format_variable_value(
+        clean_label, col, selected, NATIONAL_MEDIAN, NATIONAL_MEAN
+    )
+    return ("", county_value, median_value, mean_value)
 
 # Preferred source: separate long contribution file used by the dashboard.
 factor_rows = []
@@ -644,13 +753,14 @@ if contrib_long is not None:
         raw_factor_label = str(r["factor_label"]).strip()
         base_factor_variable = raw_factor_variable.replace("_havi", "") if raw_factor_variable and raw_factor_variable != "nan" else raw_factor_variable
         label = factor_label_map.get(base_factor_variable, factor_label_map.get(raw_factor_label, raw_factor_label.replace("_", " ").title()))
-        detail, county_value, median_value = hover_details_for_factor(label)
+        detail, county_value, median_value, mean_value = hover_details_for_factor(label)
 
         factor_rows.append({
             "Factor": label,
             "Contribution (%)": float(value),
             "County Value": county_value,
             "Typical U.S. County (Median)": median_value,
+            "U.S. Average (Mean - HAVI Reference)": mean_value,
             "Details": detail
         })
 
@@ -665,13 +775,14 @@ if len(factor_rows) == 0:
 
         raw_factor = col.replace("_signed_pct_contribution", "").replace("_havi", "")
         label = factor_label_map.get(raw_factor, raw_factor.replace("_", " ").title())
-        detail, county_value, median_value = hover_details_for_factor(label)
+        detail, county_value, median_value, mean_value = hover_details_for_factor(label)
 
         factor_rows.append({
             "Factor": label,
             "Contribution (%)": float(value),
             "County Value": county_value,
             "Typical U.S. County (Median)": median_value,
+            "U.S. Average (Mean - HAVI Reference)": mean_value,
             "Details": detail
         })
 
@@ -716,6 +827,13 @@ if len(factor_df) > 0:
     factor_df = pd.concat([neg, pos], ignore_index=True)
     factor_order = factor_df["Factor"].tolist()
 
+    # Add horizontal padding around the longest bar so outside value labels
+    # remain inside the plotting region instead of spilling into factor names.
+    max_abs_contribution = factor_df["Contribution (%)"].abs().max()
+    if pd.isna(max_abs_contribution) or max_abs_contribution == 0:
+        max_abs_contribution = 1.0
+    x_axis_limit = float(max_abs_contribution) * 1.35
+
     fig = px.bar(
         factor_df,
         x="Contribution (%)",
@@ -723,7 +841,13 @@ if len(factor_df) > 0:
         orientation="h",
         text="Label",
         color="Direction",
-        custom_data=["Direction Short", "County Value", "Typical U.S. County (Median)", "Details"],
+        custom_data=[
+            "Direction Short",
+            "County Value",
+            "Typical U.S. County (Median)",
+            "U.S. Average (Mean - HAVI Reference)",
+            "Details"
+        ],
         color_discrete_map={
             "Increases HAVI Profile (factors associated with higher healthcare access vulnerability for this county)": "#dc2626",
             "Decreases HAVI Profile (factors associated with lower healthcare access vulnerability for this county)": "#16a34a"
@@ -735,33 +859,38 @@ if len(factor_df) > 0:
 
     fig.update_traces(
         textposition="outside",
-        cliponaxis=False,
-        textfont=dict(size=17, color="#475569"),
+        cliponaxis=True,
+        textfont=dict(size=16, color="#475569"),
         hovertemplate=(
             "<b>%{y}</b><br>"
             "%{customdata[0]}<br>"
             "Contribution to HAVI Profile: %{x:.1f}%<br>"
             "County value: %{customdata[1]}<br>"
             "Typical U.S. county median: %{customdata[2]}<br>"
-            "%{customdata[3]}"
+            "U.S. average mean (HAVI reference): %{customdata[3]}<br>"
+            "%{customdata[4]}"
             "<extra></extra>"
         )
     )
     fig.update_layout(
         height=max(560, 34 * len(factor_df) + 160),
         yaxis_title="",
-        margin=dict(l=20, r=80, t=70, b=100),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
+        margin=dict(l=30, r=55, t=70, b=100),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
         font=dict(size=18),
         yaxis=dict(
             categoryorder="array",
             categoryarray=factor_order[::-1],
-            tickfont=dict(size=17, color="#111827")
+            tickfont=dict(size=16, color="#111827"),
+            automargin=True
         ),
         xaxis=dict(
             title=dict(text="Relative Contribution to HAVI Profile (%)", font=dict(size=22, color="#111827")),
-            tickfont=dict(size=14, color="#374151")
+            tickfont=dict(size=14, color="#374151"),
+            range=[-x_axis_limit, x_axis_limit],
+            automargin=True,
+            fixedrange=True
         ),
         legend_title_text="",
         legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5, font=dict(size=16))
@@ -771,7 +900,8 @@ if len(factor_df) > 0:
     fig,
     use_container_width=True,
     config={
-        "displayModeBar": False
+        "displayModeBar": False,
+        "responsive": True
     }
 )
 else:
@@ -929,7 +1059,7 @@ factor_metadata = {
 
 st.markdown(
     """
-<span style="color:#16a34a;"><b>Green</b></span> bars represent factors associated with <b>lower healthcare access vulnerability</b> and a lower HAVI score, while <span style="color:#dc2626;"><b>red</b></span> bars represent factors associated with <b>higher healthcare access vulnerability</b> and a higher HAVI score. Longer bars indicate larger relative contributions within the HAVI model. These contributions represent standardized county-level model signals rather than evidence of direct causation and should be interpreted together with the county's raw values, national medians, and local context. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are displayed only for rural-classified counties because these rural-specific resources are not applied to HAVI scoring for Urban/Semi-Urban counties.
+<span style="color:#16a34a;"><b>Green</b></span> bars represent factors associated with <b>lower healthcare access vulnerability</b> and a lower HAVI score, while <span style="color:#dc2626;"><b>red</b></span> bars represent factors associated with <b>higher healthcare access vulnerability</b> and a higher HAVI score. Longer bars indicate larger relative contributions within the HAVI model. These contributions represent standardized county-level model signals rather than evidence of direct causation and should be interpreted together with the county's raw values, national medians, national means used as HAVI reference values, and local context. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are displayed only for rural-classified counties because these rural-specific resources are not applied to HAVI scoring for Urban/Semi-Urban counties.
 """,
     unsafe_allow_html=True
 )
@@ -979,69 +1109,88 @@ st.markdown(make_havi_level_table(df).to_html(classes="havi-table", index=False,
 # -----------------------------
 st.markdown("## HAVI Variables")
 st.markdown(
-    '<div class="section-subtitle">County values are shown alongside the median value for a typical U.S. county.</div>',
+    '<div class="section-subtitle">County values are shown alongside the median for a typical U.S. county and the national mean used as the HAVI standardization reference.</div>',
     unsafe_allow_html=True
 )
 
 variable_rows = []
 
-def add_row(factor, county_value, median_value):
+def add_row(factor, county_value, median_value, mean_value):
     meta = factor_metadata.get(factor, {})
     variable_rows.append({
         "Factor": factor,
         "County Value": county_value,
         "Typical U.S. County (Median)": median_value,
-        "Domain": meta.get("domain", "County Context"),
+        "U.S. Average (Mean - HAVI Reference)": mean_value,
         "Definition": meta.get("definition", "Shown for county context.")
     })
 
 def median_pct(col):
     return fmt_pct(NATIONAL_MEDIAN.get(col, np.nan))
 
+def mean_pct(col):
+    return fmt_pct(NATIONAL_MEAN.get(col, np.nan))
+
 def median_rate(col, label):
     return fmt_rate(NATIONAL_MEDIAN.get(col, np.nan), label)
+
+def mean_rate(col, label):
+    return fmt_rate(NATIONAL_MEAN.get(col, np.nan), label)
 
 def median_small_rate(col, label):
     return fmt_small_rate(NATIONAL_MEDIAN.get(col, np.nan), label)
 
+def mean_small_rate(col, label):
+    return fmt_small_rate(NATIONAL_MEAN.get(col, np.nan), label)
+
 if "popn_est_24" in df.columns:
-    add_row("Population", fmt_count(safe_get(selected, "popn_est_24"), "resident", "residents"), f"{int(df['popn_est_24'].median()):,} residents")
+    add_row(
+        "Population",
+        fmt_count(safe_get(selected, "popn_est_24"), "resident", "residents"),
+        f"{int(df['popn_est_24'].median()):,} residents",
+        f"{int(df['popn_est_24'].mean()):,} residents"
+    )
 
 access_rows = [
-   # ("Healthcare Access Vulnerability Index", "HAVI", lambda r, c: fmt_score(safe_get(r, c)), lambda c: fmt_score(NATIONAL_MEDIAN.get(c, np.nan))),
-    ("Older Adults (≥65 Years)", "ACS_PCT_AGE_ABOVE65", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Young Children (<5 Years)", "ACS_PCT_AGE_0_4", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Population with Disabilities", "ACS_PCT_DISABLE", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Chronic Disease Burden", "disease_burden_composite", lambda r, c: fmt_score(safe_get(r, c)), lambda c: fmt_score(NATIONAL_MEDIAN.get(c, np.nan))),
-    ("Population Below Poverty Level", "pers_povty_pct_23", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Unemployment Rate", "ACS_PCT_UNEMPLOY", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Households Without Vehicle", "ACS_PCT_HU_NO_VEH", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Public Transit Use", "ACS_PCT_PUBL_TRANSIT", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Households Without Internet", "ACS_PCT_HH_NO_INTERNET", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Housing Cost Burden", "ACS_PCT_RENTER_HU_COST_30PCT", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Uninsured Population", "ACS_PCT_UNINSURED", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Primary Care Provider Availability", "primary_care_providers_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "providers per 10,000 residents"), lambda c: median_rate(c, "providers per 10,000 residents")),
-    ("Dentist Availability", "dentists_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "dentists per 10,000 residents"), lambda c: median_rate(c, "dentists per 10,000 residents")),
-    ("Mental Health Provider Availability", "mental_health_providers_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "mental health providers per 10,000 residents"), lambda c: median_rate(c, "mental health providers per 10,000 residents")),
-    ("Hospital Bed Capacity", "beds_per_1000", lambda r, c: fmt_count_with_rate(r, "hosp_beds_23", c, "bed", "beds", "per 1,000 residents"), lambda c: median_rate(c, "beds per 1,000 residents")),
-    ("Hospital Availability", "hospitals_per_100k", lambda r, c: fmt_count_with_rate(r, "hosp_23", c, "hospital", "hospitals", "per 100,000 residents"), lambda c: median_rate(c, "hospitals per 100,000 residents")),
-    ("Rural Health Clinic (RHC) Availability", "clinics_per_100k", lambda r, c: fmt_count_with_rate(r, "rural_hlth_clincs_24", c, "rural health clinic", "rural health clinics", "per 100,000 residents"), lambda c: median_rate(c, "clinics per 100,000 residents")),
-    ("Critical Access Hospital Availability", "critical_access_per_100k", lambda r, c: fmt_count_with_rate(r, "critcl_access_hosp_23", c, "critical access hospital", "critical access hospitals", "per 100,000 residents"), lambda c: median_small_rate(c, "critical access hospitals per 100,000 residents")),
-    ("FQHC Availability", "POS_FQHC_RATE", lambda r, c: fmt_fqhc_per_100k(safe_get(r, c)), lambda c: fmt_fqhc_per_100k(NATIONAL_MEDIAN.get(c, np.nan))),
-    ("Rural Population (%)", "rural_pct", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
-    ("Language Access Barriers", "ACS_PCT_HH_LIMIT_ENGLISH", lambda r, c: fmt_pct(safe_get(r, c)), median_pct),
+   # ("Healthcare Access Vulnerability Index", "HAVI", lambda r, c: fmt_score(safe_get(r, c)), lambda c: fmt_score(NATIONAL_MEDIAN.get(c, np.nan)), lambda c: fmt_score(NATIONAL_MEAN.get(c, np.nan))),
+    ("Older Adults (≥65 Years)", "ACS_PCT_AGE_ABOVE65", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Young Children (<5 Years)", "ACS_PCT_AGE_0_4", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Population with Disabilities", "ACS_PCT_DISABLE", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Chronic Disease Burden", "disease_burden_composite", lambda r, c: fmt_score(safe_get(r, c)), lambda c: fmt_score(NATIONAL_MEDIAN.get(c, np.nan)), lambda c: fmt_score(NATIONAL_MEAN.get(c, np.nan))),
+    ("Population Below Poverty Level", "pers_povty_pct_23", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Unemployment Rate", "ACS_PCT_UNEMPLOY", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Households Without Vehicle", "ACS_PCT_HU_NO_VEH", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Public Transit Use", "ACS_PCT_PUBL_TRANSIT", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Households Without Internet", "ACS_PCT_HH_NO_INTERNET", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Housing Cost Burden", "ACS_PCT_RENTER_HU_COST_30PCT", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Uninsured Population", "ACS_PCT_UNINSURED", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Primary Care Provider Availability", "primary_care_providers_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "providers per 10,000 residents"), lambda c: median_rate(c, "providers per 10,000 residents"), lambda c: mean_rate(c, "providers per 10,000 residents")),
+    ("Dentist Availability", "dentists_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "dentists per 10,000 residents"), lambda c: median_rate(c, "dentists per 10,000 residents"), lambda c: mean_rate(c, "dentists per 10,000 residents")),
+    ("Mental Health Provider Availability", "mental_health_providers_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "mental health providers per 10,000 residents"), lambda c: median_rate(c, "mental health providers per 10,000 residents"), lambda c: mean_rate(c, "mental health providers per 10,000 residents")),
+    ("Hospital Bed Capacity", "beds_per_1000", lambda r, c: fmt_count_with_rate(r, "hosp_beds_23", c, "bed", "beds", "per 1,000 residents"), lambda c: median_rate(c, "beds per 1,000 residents"), lambda c: mean_rate(c, "beds per 1,000 residents")),
+    ("Hospital Availability", "hospitals_per_100k", lambda r, c: fmt_count_with_rate(r, "hosp_23", c, "hospital", "hospitals", "per 100,000 residents"), lambda c: median_rate(c, "hospitals per 100,000 residents"), lambda c: mean_rate(c, "hospitals per 100,000 residents")),
+    ("Rural Health Clinic (RHC) Availability", "clinics_per_100k", lambda r, c: fmt_count_with_rate(r, "rural_hlth_clincs_24", c, "rural health clinic", "rural health clinics", "per 100,000 residents"), lambda c: median_rate(c, "clinics per 100,000 residents"), lambda c: mean_rate(c, "clinics per 100,000 residents")),
+    ("Critical Access Hospital Availability", "critical_access_per_100k", lambda r, c: fmt_count_with_rate(r, "critcl_access_hosp_23", c, "critical access hospital", "critical access hospitals", "per 100,000 residents"), lambda c: median_small_rate(c, "critical access hospitals per 100,000 residents"), lambda c: mean_small_rate(c, "critical access hospitals per 100,000 residents")),
+    ("FQHC Availability", "POS_FQHC_RATE", lambda r, c: fmt_fqhc_per_100k(safe_get(r, c)), lambda c: fmt_fqhc_per_100k(NATIONAL_MEDIAN.get(c, np.nan)), lambda c: fmt_fqhc_per_100k(NATIONAL_MEAN.get(c, np.nan))),
+    ("Rural Population (%)", "rural_pct", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Language Access Barriers", "ACS_PCT_HH_LIMIT_ENGLISH", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
 ]
 
-for label, col, county_formatter, median_formatter in access_rows:
+for label, col, county_formatter, median_formatter, mean_formatter in access_rows:
     if is_urban_or_semiurban(selected) and label in rural_specific_factors:
         continue
 
     if col in df.columns:
-        add_row(label, county_formatter(selected, col), median_formatter(col))
+        add_row(label, county_formatter(selected, col), median_formatter(col), mean_formatter(col))
 
 clinic_col = "POS_MEDIAN_DIST_CLINIC" if "POS_MEDIAN_DIST_CLINIC" in df.columns else "POS_MEDIAN_DIST_CLINIC_w" if "POS_MEDIAN_DIST_CLINIC_w" in df.columns else None
 if clinic_col:
-    add_row("Distance to Nearest Clinic", fmt_rate(safe_get(selected, clinic_col), "miles"), median_rate(clinic_col, "miles"))
+    add_row(
+        "Distance to Nearest Clinic",
+        fmt_rate(safe_get(selected, clinic_col), "miles"),
+        median_rate(clinic_col, "miles"),
+        mean_rate(clinic_col, "miles")
+    )
 
 variable_table = pd.DataFrame(variable_rows)
 st.markdown(
@@ -1052,7 +1201,7 @@ st.markdown(
     """
 **Interpretation Notes**
 
-- **HAVI variables** are shown as county values alongside the median value for a typical U.S. county. The **Domain** and **Definition** columns provide additional context for interpreting each variable.
+- **HAVI variables** are shown as county values alongside the median for a typical U.S. county and the national mean used as the HAVI standardization reference. The **Definition** column provides additional context for interpreting each variable.
 
 - **Transportation Vulnerability (Vehicle & Transit)** is an engineered HAVI variable that combines household no-vehicle burden with public transportation use to better represent transportation-related access barriers.
 
@@ -1067,7 +1216,7 @@ st.markdown(
 st.markdown("## Disease Burden Variables")
 st.markdown(
     """
-    These variables come from CDC PLACES health outcome estimates and describe the observed chronic disease burden for the selected county. They are shown here as direct county values with national county medians for comparison.
+    These variables come from CDC PLACES health outcome estimates and describe the observed chronic disease burden for the selected county. They are shown here as direct county values with national county medians and means for comparison.
     """
 )
 
@@ -1075,7 +1224,8 @@ if len(disease_cols) > 0:
     disease_table = pd.DataFrame({
         "Disease Burden Variable": [disease_var_map[c] for c in disease_cols],
         "County Value": [fmt_pct(safe_get(selected, c)) for c in disease_cols],
-        "Typical U.S. County (Median)": [fmt_pct(DISEASE_MEDIAN.get(c, np.nan)) for c in disease_cols]
+        "Typical U.S. County (Median)": [fmt_pct(DISEASE_MEDIAN.get(c, np.nan)) for c in disease_cols],
+        "U.S. Average (Mean - HAVI Reference)": [fmt_pct(DISEASE_MEAN.get(c, np.nan)) for c in disease_cols]
     })
     st.dataframe(disease_table, use_container_width=True, hide_index=True)
 else:
