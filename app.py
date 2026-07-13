@@ -4,6 +4,13 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 
+st.set_option("client.toolbarMode", "minimal")
+
+st.set_page_config(
+    page_title="HAVI Dashboard",
+    layout="wide"
+)
+
 st.set_page_config(
     page_title="HAVI Dashboard",
     layout="wide"
@@ -23,6 +30,7 @@ st.markdown("""
 # -----------------------------
 HAVI_MASTER_FILE = "HAVI_2_dashboard_master_county_file_v2.csv"
 CONTRIB_LONG_FILE = "HAVI_2_county_factor_contributions_long_v1.csv"
+HAVI_LOGO_FILE = "HAVI.png"
 
 # -----------------------------
 # Custom Styling
@@ -486,6 +494,7 @@ DISEASE_MEAN = df[disease_cols].mean(numeric_only=True).to_dict()
 # -----------------------------
 # Header and sidebar
 # -----------------------------
+
 st.markdown('<div class="havi-title">Healthcare Access Vulnerability Index (HAVI)</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="havi-subtitle">HAVI is a county-level decision support tool that identifies communities where residents may experience greater challenges accessing healthcare. By combining healthcare resources, population health needs, and social and structural barriers, HAVI helps policymakers, healthcare organizations, researchers, and community leaders identify areas that may benefit from additional healthcare resources, planning, or targeted interventions.</div>',
