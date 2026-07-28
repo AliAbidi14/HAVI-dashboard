@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 
-
 st.set_page_config(
     page_title="HAVI Dashboard",
     layout="wide"
@@ -901,7 +900,7 @@ if len(factor_df) > 0:
     #st.plotly_chart(fig, use_container_width=True)
     st.plotly_chart(
     fig,
-    use_container_width=True,
+    width="stretch",
     config={
         "displayModeBar": False,
         "responsive": True
@@ -1230,7 +1229,7 @@ if len(disease_cols) > 0:
         "Typical U.S. County (Median)": [fmt_pct(DISEASE_MEDIAN.get(c, np.nan)) for c in disease_cols],
         "U.S. Average (Mean - HAVI Reference)": [fmt_pct(DISEASE_MEAN.get(c, np.nan)) for c in disease_cols]
     })
-    st.dataframe(disease_table, use_container_width=True, hide_index=True)
+    st.dataframe(disease_table, width="stretch", hide_index=True)
 else:
     st.info("No disease burden variable columns were found in the master file.")
 
