@@ -1250,11 +1250,11 @@ HAVI does not measure healthcare access using a single factor. Instead, it combi
 
 HAVI includes three domains:
 
-- **Healthcare Supply (30%)** measures the availability of healthcare resources, including primary care providers, dentists, mental health providers, hospital beds, hospitals, and Federally Qualified Health Centers. Rural Health Clinics and Critical Access Hospitals are included only for rural-classified counties to better reflect rural healthcare infrastructure.
+- **Healthcare Supply (25%)** measures the availability of healthcare resources, including primary care providers, dentists, mental health providers, hospital beds, hospitals, and Federally Qualified Health Centers. Rural Health Clinics and Critical Access Hospitals are included only for rural-classified counties to better reflect rural healthcare infrastructure.
 
-- **Healthcare Demand (30%)** measures expected healthcare need using the proportion of older adults, children under age 5, people with disabilities, and the county's overall chronic disease burden.
+- **Healthcare Demand (25%)** measures expected healthcare need using the proportion of older adults, children under age 5, people with disabilities, and the county's overall chronic disease burden.
 
-- **Social and Structural Vulnerability (40%)** measures conditions that may make healthcare more difficult to obtain, including poverty, unemployment, housing cost burden, lack of internet access, lack of health insurance, limited English proficiency, rurality, transportation barriers, and distance to the nearest clinic.
+- **Social and Structural Vulnerability (50%)** measures conditions that may make healthcare more difficult to obtain, including poverty, unemployment, housing cost burden, lack of internet access, lack of health insurance, limited English proficiency, rurality, transportation barriers, and distance to the nearest clinic.
 
 ### Engineered Measures
 
