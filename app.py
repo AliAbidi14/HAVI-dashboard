@@ -332,7 +332,7 @@ def rural_urban_group(code):
     if code in [1, 2, 3, 4]:
         return "Urban/Semi-Urban"
     if code in [5, 6]:
-        return "Rural"
+        return "Semi-rural/Rural"
     return "Not available"
 
 def is_urban_or_semiurban(row):
@@ -795,17 +795,17 @@ factor_df = pd.DataFrame(factor_rows)
 if len(factor_df) > 0 and is_urban_or_semiurban(selected):
     factor_df = factor_df[~factor_df["Factor"].isin(rural_specific_factors)].copy()
 
-st.markdown("## Factors Contributing to This County's HAVI Score")
+st.markdown("## Indicators Contributing to This County's HAVI Score")
 #st.markdown(
-#    "<div class='section-subtitle'>This chart shows how each HAVI factor contributes to the selected county's overall healthcare access vulnerability profile. Factors shown in red are associated with higher healthcare access vulnerability and increase the county's HAVI score, while factors shown in green are associated with lower healthcare access vulnerability and decrease the county's HAVI score. Longer bars indicate larger relative contributions within the HAVI model.</div>",
+#    "<div class='section-subtitle'>This chart shows how each HAVI indicator contributes to the selected county's overall healthcare access vulnerability profile. Indicators shown in red are associated with higher healthcare access vulnerability and increase the county's HAVI score, while indicators shown in green are associated with lower healthcare access vulnerability and decrease the county's HAVI score. Longer bars indicate larger relative contributions within the HAVI model.</div>",
 #    unsafe_allow_html=True
 #)
 
 if len(factor_df) > 0:
     factor_df["Direction"] = factor_df["Contribution (%)"].apply(
-        lambda x: "Increases HAVI Profile (factors associated with higher healthcare access vulnerability for this county)" 
+        lambda x: "Increases HAVI Score (indicators associated with higher healthcare access vulnerability for this county)" 
         if x > 0 
-        else "Decreases HAVI Profile (factors associated with lower healthcare access vulnerability for this county)"
+        else "Decreases HAVI Score (indicators associated with lower healthcare access vulnerability for this county)"
     )
 
     factor_df["Direction Short"] = factor_df["Contribution (%)"].apply(
@@ -851,10 +851,10 @@ if len(factor_df) > 0:
             "Details"
         ],
         color_discrete_map={
-            "Increases HAVI Profile (factors associated with higher healthcare access vulnerability for this county)": "#dc2626",
-            "Decreases HAVI Profile (factors associated with lower healthcare access vulnerability for this county)": "#16a34a"
+            "Increases HAVI Score (indicators associated with higher healthcare access vulnerability for this county)": "#dc2626",
+            "Decreases HAVI Score (indicators associated with lower healthcare access vulnerability for this county)": "#16a34a"
         },
-        title="Factors Contributing to This County's HAVI Score"
+        title="Indicators Contributing to This County's HAVI Score"
     )
 
     fig.add_vline(x=0, line_width=2, line_color="#111827")
@@ -1061,7 +1061,7 @@ factor_metadata = {
 
 st.markdown(
     """
-<span style="color:#16a34a;"><b>Green</b></span> bars represent factors that <b>lower this county's HAVI Score</b>, while <span style="color:#dc2626;"><b>red</b></span> bars represent factors that <b>raise this county's HAVI Score.</b> The percentage shown for each factor represents its <b>share of the total absolute contribution of all variables to this county's HAVI profile</b>; it does <b>not</b> represent the percent difference between the county value and the national average or median. Contributions are calculated from each county's <b>standardized value relative to the national mean</b>, adjusted for factor direction and HAVI domain weighting. <b>Longer bars indicate factors with a larger relative role in shaping this county's HAVI profile.</b> These contributions reflect the HAVI scoring framework rather than evidence of direct causation and should be interpreted alongside the county's raw values, national reference values, and local context. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are displayed only for rural-classified counties because these rural-specific resources are not applied to HAVI scoring for Urban/Semi-Urban counties.""",
+<span style="color:#16a34a;"><b>Green</b></span> bars represent indicators that <b>lower this county's HAVI Score</b>, while <span style="color:#dc2626;"><b>red</b></span> bars represent indicators that <b>raise this county's HAVI Score.</b> The percentage shown for each factor represents its <b>share of the total absolute contribution of all variables to this county's HAVI profile</b>; it does <b>not</b> represent the percent difference between the county value and the national average or median. Contributions are calculated from each county's <b>standardized value relative to the national mean</b>, adjusted for factor direction and HAVI domain weighting. <b>Longer bars indicate indicators with a larger relative role in shaping this county's HAVI profile.</b> These contributions reflect the HAVI scoring framework rather than evidence of direct causation and should be interpreted alongside the county's raw values, national reference values, and local context. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are displayed only for rural-classified counties because these rural-specific resources are not applied to HAVI scoring for Urban/Semi-Urban counties.""",
     unsafe_allow_html=True
 )
 
@@ -1108,7 +1108,7 @@ st.markdown(make_havi_level_table(df).to_html(classes="havi-table", index=False,
 # -----------------------------
 # HAVI variables table
 # -----------------------------
-st.markdown("## HAVI Variables")
+st.markdown("## HAVI Measures")
 st.markdown(
     '<div class="section-subtitle">County values are shown alongside the median for a typical U.S. county and the national mean used as the HAVI standardization reference.</div>',
     unsafe_allow_html=True
@@ -1119,7 +1119,7 @@ variable_rows = []
 def add_row(factor, county_value, median_value, mean_value):
     meta = factor_metadata.get(factor, {})
     variable_rows.append({
-        "Factor": factor,
+        "Measure": factor,
         "County Value": county_value,
         "Typical U.S. County (Median)": median_value,
         "U.S. Average (Mean - HAVI Reference)": mean_value,
@@ -1202,7 +1202,7 @@ st.markdown(
     """
 **Interpretation Notes**
 
-- **HAVI variables** are shown as county values alongside the median for a typical U.S. county and the national mean used as the HAVI standardization reference. The **Definition** column provides additional context for interpreting each variable.
+- **HAVI measures** are shown as county values alongside the median for a typical U.S. county and the national mean used as the HAVI standardization reference. The **Definition** column provides additional context for interpreting each variable.
 
 - **Transportation Vulnerability (Vehicle & Transit)** is an engineered HAVI variable that combines household no-vehicle burden with public transportation use to better represent transportation-related access barriers.
 
