@@ -1,8 +1,11 @@
 import os
+import warnings
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import numpy as np
+
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 st.set_page_config(
     page_title="HAVI Dashboard",
@@ -24,6 +27,10 @@ st.markdown("""
 HAVI_MASTER_FILE = "HAVI_2_dashboard_master_county_file_v2.csv"
 CONTRIB_LONG_FILE = "HAVI_2_county_factor_contributions_long_v1.csv"
 HAVI_LOGO_FILE = "HAVI.png"
+
+# Counties without published CDC PLACES 2025 estimates (values are model-based estimates)
+PLACES_IMPUTED_STATES = {"Kentucky", "Pennsylvania"}
+PLACES_IMPUTED_FIPS = {"48301"}  # Loving County, Texas
 
 # -----------------------------
 # Custom Styling
@@ -151,7 +158,7 @@ st.markdown(
             border-color: #334155 !important;
             box-shadow: none !important;
         }
-        /* Keep the Rural-Urban card fully legible in dark mode. */
+        /* Keep the Urban-Rural card fully legible in dark mode. */
         .metric-card.force-dark-white .metric-value,
         .metric-card.force-dark-white .metric-value span {
             color: #ffffff !important;
@@ -260,11 +267,6 @@ def fmt_count_with_rate(row, count_col, rate_col, singular, plural, rate_label):
         return count_text
     return f"{count_text} ({float(rate_value):.1f} {rate_label})"
 
-def percentile_text(value):
-    if pd.isna(value):
-        return "Not available"
-    return f"{float(value):.1f}%"
-
 def rank_text(value):
     if pd.isna(value):
         return "Not available"
@@ -299,11 +301,10 @@ def render_metric(label, value, color="#172554", font_size=34, css_class=""):
 
 def get_nchs_code(row):
     possible_cols = [
-        "NCHS_code", "NCHS_CODE", "nchs_code",
-        "NCHS Urban-Rural Code", "NCHS_URBAN_RURAL_CODE", "nchs_urban_rural_code",
+        "nchs_urban_rural_code", "NCHS_code", "NCHS_CODE", "nchs_code",
+        "NCHS Urban-Rural Code", "NCHS_URBAN_RURAL_CODE",
         "urban_rural_code", "URBAN_RURAL_CODE",
-        "NCHS_2013_CODE", "nchs_2013_code", "NCHS_2023_CODE", "nchs_2023_code",
-        "nchs_code_2013", "NCHS_code_2013", "nchs_code_2023", "NCHS_code_2023",
+        "NCHS_2023_CODE", "nchs_2023_code", "nchs_code_2023", "NCHS_code_2023",
         "URBRURAL", "urb_rural", "urban_rural",
         "NCHS_Urban_Rural_Classification_Code"
     ]
@@ -329,19 +330,53 @@ def nchs_detail_label(code):
     return labels.get(code, "Not available")
 
 def rural_urban_group(code):
+    """HAVI urban-rural groups based on the 2023 NCHS Urban-Rural Classification Scheme:
+    Urban/Suburban = metropolitan counties (codes 1-4);
+    Semi-Rural/Rural = nonmetropolitan counties (codes 5-6)."""
     if code in [1, 2, 3, 4]:
-        return "Urban/Semi-Urban"
+        return "Urban/Suburban"
     if code in [5, 6]:
-        return "Semi-rural/Rural"
+        return "Semi-Rural/Rural"
     return "Not available"
 
-def is_urban_or_semiurban(row):
+def is_urban_suburban(row):
     return get_nchs_code(row) in [1, 2, 3, 4]
 
 rural_specific_factors = [
     "Rural Health Clinic (RHC) Availability",
     "Critical Access Hospital Availability"
 ]
+
+def fmt_hospitals(row, rate_col):
+    """Hospital count shown on the same basis as the HAVI indicator:
+    all hospitals in Urban/Suburban counties; Critical Access Hospitals excluded in
+    Semi-Rural/Rural counties because they are counted by their own indicator."""
+    hosp = safe_get(row, "hosp_23")
+    cah = safe_get(row, "critcl_access_hosp_23")
+    rate = safe_get(row, rate_col)
+    if is_urban_suburban(row):
+        count, note = hosp, ""
+    else:
+        count = hosp - cah if not (pd.isna(hosp) or pd.isna(cah)) else np.nan
+        note = " (excluding Critical Access Hospitals)"
+    if pd.isna(count) and pd.isna(rate):
+        return "Not available"
+    text = fmt_count(count, "hospital", "hospitals") + note
+    if not pd.isna(rate):
+        text += f"; {float(rate):.1f} per 100,000 residents"
+    return text
+
+def fmt_nursing_home_beds(row, rate_col):
+    snf = safe_get(row, "snf_beds_24")
+    nf = safe_get(row, "nurs_fac_beds_24")
+    count = np.nan if (pd.isna(snf) and pd.isna(nf)) else np.nansum([snf, nf])
+    rate = safe_get(row, rate_col)
+    if pd.isna(count) and pd.isna(rate):
+        return "Not available"
+    text = fmt_count(count, "bed", "beds")
+    if not pd.isna(rate):
+        text += f" ({float(rate):.1f} per 1,000 residents aged ≥65)"
+    return text
 
 # -----------------------------
 # Load Data
@@ -388,26 +423,12 @@ def load_havi():
         st.stop()
     data["HAVI Level"] = data["HAVI Level"].apply(normalize_vulnerability_text)
 
-    rank_col = coalesce_columns(
-        data,
-        ["HAVI_rank_national", "HAVI_national_rank", "HAVI Rank", "National Rank", "rank_national"],
-        None
-    )
-    pct_col = coalesce_columns(
-        data,
-        ["HAVI_percentile_national", "HAVI_national_percentile", "HAVI Percentile", "National Percentile", "percentile_national"],
-        None
-    )
-
-    if rank_col is not None:
-        data["National Rank"] = pd.to_numeric(data[rank_col], errors="coerce")
-    else:
-        data["National Rank"] = data["HAVI Score"].rank(ascending=False, method="min")
-
-    if pct_col is not None:
-        data["National Percentile"] = pd.to_numeric(data[pct_col], errors="coerce")
-    else:
-        data["National Percentile"] = data["HAVI Score"].rank(pct=True, ascending=True).mul(100)
+    # Rank and standing are always computed here so that rank 1 = highest HAVI score.
+    # (Rank columns stored in source files may use the opposite direction.)
+    data = data.copy()
+    n_scored = data["HAVI Score"].notna().sum()
+    data["National Rank"] = data["HAVI Score"].rank(ascending=False, method="min")
+    data["Pct Counties Lower"] = (n_scored - data["National Rank"]) / max(n_scored - 1, 1) * 100
 
     return data
 
@@ -447,6 +468,7 @@ except FileNotFoundError:
     st.stop()
 
 contrib_long = load_contrib_long()
+N_COUNTIES = int(df["HAVI Score"].notna().sum())
 
 # -----------------------------
 # Reference medians and means
@@ -454,12 +476,13 @@ contrib_long = load_contrib_long()
 havi_reference_vars = [
     "HAVI", "HAVI Score", "disease_burden_composite",
     "ACS_PCT_AGE_ABOVE65", "ACS_PCT_AGE_0_4", "ACS_PCT_DISABLE",
-    "pers_povty_pct_23", "ACS_PCT_UNEMPLOY",
+    "pers_povty_pct_23", "ACS_PCT_UNEMPLOY", "ACS_PCT_LT_HS",
     "ACS_PCT_HU_NO_VEH", "ACS_PCT_PUBL_TRANSIT", "transport_vulnerability",
     "ACS_PCT_HH_NO_INTERNET", "ACS_PCT_RENTER_HU_COST_30PCT", "ACS_PCT_UNINSURED",
     "primary_care_providers_per_10k", "dentists_per_10k", "mental_health_providers_per_10k",
     "providers_per_10k", "beds_per_1000", "hospitals_per_100k", "clinics_per_100k",
-    "critical_access_per_100k", "POS_FQHC_RATE", "rural_pct", "ACS_PCT_HH_LIMIT_ENGLISH",
+    "critical_access_per_100k", "POS_FQHC_RATE", "nursing_home_beds_per_1000_65plus",
+    "rural_pct", "ACS_PCT_HH_LIMIT_ENGLISH",
     "POS_MEDIAN_DIST_CLINIC", "POS_MEDIAN_DIST_CLINIC_w"
 ]
 havi_reference_vars = [c for c in havi_reference_vars if c in df.columns]
@@ -477,7 +500,6 @@ disease_var_map = {
     "hypertension_pct": "High Blood Pressure",
     "bphigh_pct": "High Blood Pressure",
     "obesity_pct": "Obesity",
-    "poor_health_pct": "Poor or Fair Health",
     "stroke_pct": "Stroke"
 }
 disease_cols = [c for c in disease_var_map if c in df.columns]
@@ -490,7 +512,7 @@ DISEASE_MEAN = df[disease_cols].mean(numeric_only=True).to_dict()
 
 st.markdown('<div class="havi-title">Healthcare Access Vulnerability Index (HAVI)</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="havi-subtitle">HAVI is a county-level decision support tool that identifies communities where residents may experience greater challenges accessing healthcare. By combining healthcare resources, population health needs, and social and structural barriers, HAVI helps policymakers, healthcare organizations, researchers, and community leaders identify areas that may benefit from additional healthcare resources, planning, or targeted interventions.</div>',
+    '<div class="havi-subtitle">HAVI is a county-level screening tool that identifies communities where residents may face greater challenges accessing healthcare. It combines healthcare resources, population health needs, and social and structural barriers, and shows which conditions contribute most to each county\'s score. This dashboard is a research prototype intended to support further local assessment and planning.</div>',
     unsafe_allow_html=True
 )
 
@@ -523,7 +545,6 @@ havi_color = level_colors.get(str(selected["HAVI Level"]), "#172554")
 # Top profile
 # -----------------------------
 st.markdown(f"## {county}, {state}")
-#st.markdown("### Healthcare Access Vulnerability Index (HAVI)")
 nchs_code = get_nchs_code(selected)
 ru_group = rural_urban_group(nchs_code)
 ru_detail = nchs_detail_label(nchs_code)
@@ -534,24 +555,19 @@ with col1:
 with col2:
     render_metric("HAVI Level", normalize_vulnerability_text(selected["HAVI Level"]), havi_color, font_size=24)
 with col3:
-    render_metric("National Rank (Out of 3144)", rank_text(selected["National Rank"]), havi_color)
+    render_metric(f"National Rank (out of {N_COUNTIES:,})", rank_text(selected["National Rank"]), havi_color)
 with col4:
-    lower_than = (
-        100 - float(selected["National Percentile"])
-        if not pd.isna(selected["National Percentile"])
-        else np.nan
-    )
-
+    pct_lower = selected["Pct Counties Lower"]
     render_metric(
-        "National Percentile",
-        f"{lower_than:.1f}%"
-        if not pd.isna(lower_than)
-        else "Not available",
-        havi_color
+        "HAVI Higher Than",
+        f"{pct_lower:.1f}%<br><span style='font-size:15px; font-weight:600; color:#64748b;'>of U.S. counties</span>"
+        if not pd.isna(pct_lower) else "Not available",
+        havi_color,
+        font_size=30
     )
 with col5:
     render_metric(
-        "Rural-Urban Class",
+        "Urban–Rural Group (NCHS)",
         f"{ru_group}<br><span style='font-size:15px; font-weight:600; color:#64748b;'>{ru_detail}</span>",
         "#172554",
         font_size=22,
@@ -559,7 +575,8 @@ with col5:
     )
 
 st.markdown(
-    "Higher HAVI scores and smaller national rank numbers (with rank 1 representing the highest score) indicate greater relative healthcare access vulnerability."
+    "Higher HAVI scores and smaller national rank numbers (rank 1 = highest score) indicate greater relative healthcare access vulnerability. "
+    "Urban/Suburban = metropolitan counties (NCHS codes 1–4); Semi-Rural/Rural = nonmetropolitan counties (NCHS codes 5–6)."
 )
 
 # -----------------------------
@@ -576,6 +593,7 @@ factor_label_map = {
     "ACS_PCT_HH_NO_INTERNET": "Households Without Internet",
     "ACS_PCT_UNINSURED": "Uninsured Population",
     "ACS_PCT_HH_LIMIT_ENGLISH": "Language Access Barriers",
+    "ACS_PCT_LT_HS": "Adults Without a High School Diploma",
     "rural_pct": "Rural Population (%)",
     "transport_vulnerability": "Transportation Vulnerability (Vehicle & Transit)",
     "POS_MEDIAN_DIST_CLINIC": "Distance to Nearest Clinic",
@@ -588,12 +606,13 @@ factor_label_map = {
     "hospitals_per_100k": "Hospital Availability",
     "clinics_per_100k": "Rural Health Clinic (RHC) Availability",
     "critical_access_per_100k": "Critical Access Hospital Availability",
+    "nursing_home_beds_per_1000_65plus": "Nursing Home Bed Capacity",
     "POS_FQHC_RATE": "FQHC Availability",
     "FQHC Access": "FQHC Availability",
     "Federally Qualified Health Centers": "FQHC Availability",
     "Hospitals": "Hospital Availability",
 
-    # Backward-compatible display labels from older contribution files
+    # Display labels used in the contribution files
     "Older Adults": "Older Adults (≥65 Years)",
     "Children Under 5": "Young Children (<5 Years)",
     "Disability": "Population with Disabilities",
@@ -602,8 +621,10 @@ factor_label_map = {
     "Unemployment": "Unemployment Rate",
     "Housing Burden": "Housing Cost Burden",
     "No Internet": "Households Without Internet",
+    "Uninsured": "Uninsured Population",
     "Limited English": "Language Access Barriers",
     "Limited English Proficiency": "Language Access Barriers",
+    "No High School Diploma": "Adults Without a High School Diploma",
     "Rural Population": "Rural Population (%)",
     "Transportation Access": "Transportation Vulnerability (Vehicle & Transit)",
     "Transportation Access (Vehicle & Transit)": "Transportation Vulnerability (Vehicle & Transit)",
@@ -619,6 +640,7 @@ factor_label_map = {
     "Mental Health Provider Availability": "Mental Health Provider Availability",
     "Hospital Beds": "Hospital Bed Capacity",
     "Hospital Access": "Hospital Availability",
+    "Nursing Home Beds": "Nursing Home Bed Capacity",
     "Rural Health Clinics": "Rural Health Clinic (RHC) Availability",
     "Critical Access Hospitals": "Critical Access Hospital Availability"
 }
@@ -641,9 +663,12 @@ label_to_col = {
     "Households Without Internet": "ACS_PCT_HH_NO_INTERNET",
     "No Internet": "ACS_PCT_HH_NO_INTERNET",
     "Uninsured Population": "ACS_PCT_UNINSURED",
+    "Uninsured": "ACS_PCT_UNINSURED",
     "Language Access Barriers": "ACS_PCT_HH_LIMIT_ENGLISH",
     "Limited English": "ACS_PCT_HH_LIMIT_ENGLISH",
     "Limited English Proficiency": "ACS_PCT_HH_LIMIT_ENGLISH",
+    "Adults Without a High School Diploma": "ACS_PCT_LT_HS",
+    "No High School Diploma": "ACS_PCT_LT_HS",
     "Rural Population (%)": "rural_pct",
     "Rural Population": "rural_pct",
     "Transportation Vulnerability (Vehicle & Transit)": "transport_vulnerability",
@@ -665,6 +690,8 @@ label_to_col = {
     "Hospital Availability": "hospitals_per_100k",
     "Hospitals": "hospitals_per_100k",
     "Hospital Access": "hospitals_per_100k",
+    "Nursing Home Bed Capacity": "nursing_home_beds_per_1000_65plus",
+    "Nursing Home Beds": "nursing_home_beds_per_1000_65plus",
     "Rural Health Clinic (RHC) Availability": "clinics_per_100k",
     "Rural Health Clinics": "clinics_per_100k",
     "Critical Access Hospital Availability": "critical_access_per_100k",
@@ -685,7 +712,7 @@ def format_variable_value(label, col, row, median_dict, mean_dict):
     pct_cols = {
         "ACS_PCT_AGE_ABOVE65", "ACS_PCT_AGE_0_4", "ACS_PCT_DISABLE", "pers_povty_pct_23",
         "ACS_PCT_UNEMPLOY", "ACS_PCT_RENTER_HU_COST_30PCT", "ACS_PCT_HH_NO_INTERNET",
-        "ACS_PCT_UNINSURED", "ACS_PCT_HH_LIMIT_ENGLISH", "rural_pct",
+        "ACS_PCT_UNINSURED", "ACS_PCT_HH_LIMIT_ENGLISH", "ACS_PCT_LT_HS", "rural_pct",
         "ACS_PCT_HU_NO_VEH", "ACS_PCT_PUBL_TRANSIT"
     }
 
@@ -700,6 +727,9 @@ def format_variable_value(label, col, row, median_dict, mean_dict):
         return fmt_rate(value, label_text), fmt_rate(median, label_text), fmt_rate(mean, label_text)
     if col == "beds_per_1000":
         label_text = "beds per 1,000 residents"
+        return fmt_rate(value, label_text), fmt_rate(median, label_text), fmt_rate(mean, label_text)
+    if col == "nursing_home_beds_per_1000_65plus":
+        label_text = "beds per 1,000 residents aged ≥65"
         return fmt_rate(value, label_text), fmt_rate(median, label_text), fmt_rate(mean, label_text)
     if col in ["hospitals_per_100k", "clinics_per_100k", "critical_access_per_100k"]:
         label_text = "per 100,000 residents"
@@ -720,7 +750,7 @@ def hover_details_for_factor(label):
         transit_med = fmt_pct(NATIONAL_MEDIAN.get("ACS_PCT_PUBL_TRANSIT", np.nan))
         transit_mean = fmt_pct(NATIONAL_MEAN.get("ACS_PCT_PUBL_TRANSIT", np.nan))
         return (
-            "Engineered from no-vehicle access and public transit use.",
+            "Engineered proxy from no-vehicle households and public transit use.",
             f"No vehicle: {no_vehicle}; Public transit use: {transit}",
             f"No vehicle median: {no_vehicle_med}; Public transit median: {transit_med}",
             f"No vehicle mean: {no_vehicle_mean}; Public transit mean: {transit_mean}"
@@ -731,11 +761,18 @@ def hover_details_for_factor(label):
             clean_label, "disease_burden_composite", selected, NATIONAL_MEDIAN, NATIONAL_MEAN
         )
         return (
-            "Composite disease burden variable. See Disease Burden Variables below for component outcomes.",
+            "Composite of ten chronic conditions. See Disease Burden Variables below.",
             county_value,
             median_value,
             mean_value
         )
+
+    if clean_label == "Hospital Availability" and not is_urban_suburban(selected):
+        col = label_to_col.get(clean_label)
+        county_value, median_value, mean_value = format_variable_value(
+            clean_label, col, selected, NATIONAL_MEDIAN, NATIONAL_MEAN
+        )
+        return ("Excludes Critical Access Hospitals, which are counted separately.", county_value, median_value, mean_value)
 
     col = label_to_col.get(clean_label)
     county_value, median_value, mean_value = format_variable_value(
@@ -793,16 +830,12 @@ if len(factor_rows) == 0:
 
 factor_df = pd.DataFrame(factor_rows)
 
-# For Urban/Semi-Urban counties, RHC and CAH variables are not shown because
-# they are rural-specific resources and are not applied to HAVI scoring for NCHS 1–4 counties.
-if len(factor_df) > 0 and is_urban_or_semiurban(selected):
+# For Urban/Suburban (metropolitan, NCHS 1–4) counties, RHC and CAH indicators are not shown
+# because these rural-specific resources are not scored for those counties.
+if len(factor_df) > 0 and is_urban_suburban(selected):
     factor_df = factor_df[~factor_df["Factor"].isin(rural_specific_factors)].copy()
 
 st.markdown("## Factors Contributing to This County's HAVI Score")
-#st.markdown(
-#    "<div class='section-subtitle'>This chart shows how each HAVI factor contributes to the selected county's overall healthcare access vulnerability profile. Factors shown in red are associated with higher healthcare access vulnerability and increase the county's HAVI score, while factors shown in green are associated with lower healthcare access vulnerability and decrease the county's HAVI score. Longer bars indicate larger relative contributions within the HAVI model.</div>",
-#    unsafe_allow_html=True
-#)
 
 if len(factor_df) > 0:
     factor_df["Direction"] = factor_df["Contribution (%)"].apply(
@@ -874,7 +907,7 @@ if len(factor_df) > 0:
         hovertemplate=(
             "<b>%{y}</b><br>"
             "%{customdata[0]}<br>"
-            "Contribution to HAVI Profile: %{x:.1f}%<br>"
+            "Relative contribution share: %{x:.1f}%<br>"
             "County value: %{customdata[1]}<br>"
             "Typical U.S. county median: %{customdata[2]}<br>"
             "U.S. average mean (HAVI reference): %{customdata[3]}<br>"
@@ -896,7 +929,7 @@ if len(factor_df) > 0:
             automargin=True
         ),
         xaxis=dict(
-            title=dict(text="Relative Contribution to HAVI Profile (%)", font=dict(size=22, color="#111827")),
+            title=dict(text="Relative Contribution Share (%)", font=dict(size=22, color="#111827")),
             tickfont=dict(size=14, color="#374151"),
             range=[-x_axis_limit, x_axis_limit],
             automargin=True,
@@ -905,7 +938,6 @@ if len(factor_df) > 0:
         legend_title_text="",
         legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5, font=dict(size=16))
     )
-    #st.plotly_chart(fig, use_container_width=True)
     st.plotly_chart(
         fig,
         width="stretch",
@@ -917,11 +949,12 @@ if len(factor_df) > 0:
     st.caption(
         "Terminology: 'Factors' on this chart means the indicators used in the HAVI "
         "framework, including composite indicators built from multiple data inputs. "
-        "These percentages describe contributions within the HAVI scoring model; "
+        "Percentages are relative contribution shares within the HAVI scoring model; "
         "they do not establish causal effects."
     )
 else:
     st.info(f"No contribution data were found. Make sure {CONTRIB_LONG_FILE} is in the same folder as app.py, or that the master file contains columns ending in _signed_pct_contribution.")
+
 # -----------------------------
 # Factor metadata used in HAVI variables table
 # -----------------------------
@@ -931,37 +964,37 @@ factor_metadata = {
         "domain": "County Context",
         "raw": "popn_est_24",
         "source": "AHRF 2025",
-        "definition": "Estimated total county population, shown for context but not interpreted as a standalone HAVI vulnerability driver."
+        "definition": "Estimated total county population, shown for context; not a HAVI indicator."
     },
     "Households Without Vehicle": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "ACS_PCT_HU_NO_VEH",
-        "source": "AHRQ SDOH 2025",
-        "definition": "Percentage of households without access to a vehicle. This is one input used to construct the Transportation Vulnerability variable."
+        "source": "AHRQ SDOH 2023",
+        "definition": "Percentage of households without access to a vehicle. One input to Transportation Vulnerability."
     },
     "Public Transit Use": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "ACS_PCT_PUBL_TRANSIT",
-        "source": "AHRQ SDOH 2025",
-        "definition": "Percentage of workers using public transportation. This is used with no-vehicle access to contextualize transportation barriers."
+        "source": "AHRQ SDOH 2023",
+        "definition": "Percentage of workers commuting by public transportation. One input to Transportation Vulnerability."
     },
     "Transportation Vulnerability (Vehicle & Transit)": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "transport_vulnerability",
-        "source": "Engineered from AHRQ SDOH 2025",
-        "definition": "Combines household no-vehicle burden and public transit use to estimate transportation-related access barriers."
+        "source": "Engineered from AHRQ SDOH 2023",
+        "definition": "Engineered proxy combining no-vehicle households with public transit use, which may partly offset lack of a vehicle. Higher values indicate greater transportation vulnerability."
     },
     "Distance to Nearest Clinic": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "POS_MEDIAN_DIST_CLINIC",
-        "source": "AHRF 2025",
-        "definition": "Median distance from residents to the nearest outpatient clinic."
+        "source": "AHRQ SDOH 2023",
+        "definition": "Median distance from residents to the nearest FQHC or Rural Health Clinic."
     },
     "Primary Care Provider Availability": {
         "domain": "Healthcare Supply",
         "raw": "primary_care_providers_per_10k",
         "source": "AHRF 2025",
-        "definition": "Number of primary care providers per 10,000 residents."
+        "definition": "Primary care physicians, physician assistants, and nurse practitioners per 10,000 residents."
     },
     "Dentist Availability": {
         "domain": "Healthcare Supply",
@@ -972,8 +1005,8 @@ factor_metadata = {
     "Mental Health Provider Availability": {
         "domain": "Healthcare Supply",
         "raw": "mental_health_providers_per_10k",
-        "source": "AHRF 2025",
-        "definition": "Number of mental health providers per 10,000 residents."
+        "source": "AHRQ SDOH 2023",
+        "definition": "All mental health providers (including psychiatrists, psychologists, licensed clinical social workers, counselors, and family therapists) per 10,000 residents."
     },
     "Hospital Bed Capacity": {
         "domain": "Healthcare Supply",
@@ -985,97 +1018,109 @@ factor_metadata = {
         "domain": "Healthcare Supply",
         "raw": "hospitals_per_100k",
         "source": "AHRF 2025",
-        "definition": "Number of hospitals per 100,000 residents."
+        "definition": "Hospitals per 100,000 residents. In Semi-Rural/Rural counties, Critical Access Hospitals are excluded here because they are counted by their own indicator."
     },
     "Rural Health Clinic (RHC) Availability": {
         "domain": "Healthcare Supply",
         "raw": "clinics_per_100k",
         "source": "AHRF 2025",
-        "definition": "Number of Rural Health Clinics (RHC) per 100,000 residents."
+        "definition": "Rural Health Clinics per 100,000 residents. Scored only for Semi-Rural/Rural counties."
     },
     "Critical Access Hospital Availability": {
         "domain": "Healthcare Supply",
         "raw": "critical_access_per_100k",
         "source": "AHRF 2025",
-        "definition": "Number of Critical Access Hospitals per 100,000 residents."
+        "definition": "Critical Access Hospitals per 100,000 residents. Scored only for Semi-Rural/Rural counties."
     },
     "FQHC Availability": {
         "domain": "Healthcare Supply",
         "raw": "POS_FQHC_RATE",
+        "source": "AHRQ SDOH 2023",
+        "definition": "Federally Qualified Health Centers per 100,000 residents (AHRQ's per-1,000 rate rescaled for display only)."
+    },
+    "Nursing Home Bed Capacity": {
+        "domain": "Healthcare Supply",
+        "raw": "nursing_home_beds_per_1000_65plus",
         "source": "AHRF 2025",
-        "definition": "Federally Qualified Health Centers per 100,000 residents. AHRQ's original per-1,000 rate is rescaled for dashboard display only."
+        "definition": "Skilled nursing facility and nursing facility beds per 1,000 residents aged 65 years or older."
     },
     "Older Adults (≥65 Years)": {
         "domain": "Healthcare Demand",
         "raw": "ACS_PCT_AGE_ABOVE65",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of residents aged 65 years or older."
     },
     "Young Children (<5 Years)": {
         "domain": "Healthcare Demand",
         "raw": "ACS_PCT_AGE_0_4",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of residents younger than 5 years."
     },
     "Population with Disabilities": {
         "domain": "Healthcare Demand",
         "raw": "ACS_PCT_DISABLE",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of residents reporting a disability."
     },
     "Chronic Disease Burden": {
         "domain": "Healthcare Demand",
         "raw": "disease_burden_composite",
         "source": "CDC PLACES 2025",
-        "definition": "Composite index summarizing county-level chronic disease burden across selected chronic conditions."
+        "definition": "Average national percentile rank across ten chronic conditions (see Disease Burden Variables below)."
     },
     "Population Below Poverty Level": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "pers_povty_pct_23",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRF 2025",
         "definition": "Percentage of residents living below the federal poverty level."
     },
     "Unemployment Rate": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "ACS_PCT_UNEMPLOY",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of the labor force that is unemployed."
     },
     "Housing Cost Burden": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "ACS_PCT_RENTER_HU_COST_30PCT",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of renter households spending at least 30% of income on housing."
     },
     "Households Without Internet": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "ACS_PCT_HH_NO_INTERNET",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of households without internet access."
     },
     "Uninsured Population": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "ACS_PCT_UNINSURED",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of residents without health insurance coverage."
+    },
+    "Adults Without a High School Diploma": {
+        "domain": "Social or Structural Determinant of Health",
+        "raw": "ACS_PCT_LT_HS",
+        "source": "AHRQ SDOH 2023",
+        "definition": "Percentage of adults aged 25 years or older without a high school diploma."
     },
     "Rural Population (%)": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "rural_pct",
-        "source": "AHRF 2025",
+        "source": "AHRF 2025 (2020 Census)",
         "definition": "Percentage of residents living in rural areas."
     },
     "Language Access Barriers": {
         "domain": "Social or Structural Determinant of Health",
         "raw": "ACS_PCT_HH_LIMIT_ENGLISH",
-        "source": "AHRQ SDOH 2025",
+        "source": "AHRQ SDOH 2023",
         "definition": "Percentage of households with limited English-speaking ability."
     }
 }
 
 st.markdown(
     """
-<span style="color:#16a34a;"><b>Green</b></span> bars represent factors that <b>lower this county's HAVI Score</b>, while <span style="color:#dc2626;"><b>red</b></span> bars represent factors that <b>raise this county's HAVI Score.</b> The percentage shown for each factor represents its <b>share of the total absolute contribution of all variables to this county's HAVI profile</b>; it does <b>not</b> represent the percent difference between the county value and the national average or median. Contributions are calculated from each county's <b>standardized value relative to the national mean</b>, adjusted for factor direction and HAVI domain weighting. <b>Longer bars indicate factors with a larger relative role in shaping this county's HAVI profile.</b> These contributions reflect the HAVI scoring framework rather than evidence of direct causation and should be interpreted alongside the county's raw values, national reference values, and local context. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are displayed only for rural-classified counties because these rural-specific resources are not applied to HAVI scoring for Urban/Semi-Urban counties.""",
+<span style="color:#16a34a;"><b>Green</b></span> bars represent factors that <b>lower this county's HAVI Score</b>, while <span style="color:#dc2626;"><b>red</b></span> bars represent factors that <b>raise this county's HAVI Score.</b> The percentage shown for each factor is its <b>relative contribution share</b>: its share of the total absolute contribution of all indicators to this county's HAVI score. It does <b>not</b> represent the percent difference between the county value and the national average or median. Contributions are calculated from each county's <b>standardized value relative to the national mean</b>, adjusted for factor direction and HAVI domain weighting. Because the four demand indicators share 25% of the weight, each carries more weight than an individual supply or social indicator, so demand factors appear more often as large contributors. These contributions reflect the HAVI scoring framework rather than evidence of direct causation and should be interpreted alongside the county's raw values, national reference values, and local context. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are shown only for Semi-Rural/Rural counties because these rural-specific resources are not scored for Urban/Suburban counties.""",
     unsafe_allow_html=True
 )
 
@@ -1088,9 +1133,9 @@ def make_havi_level_table(data):
     ordered_levels = ["Low Vulnerability", "Moderate Vulnerability", "High Vulnerability", "Very High Vulnerability"]
     interpretations = {
         "Low Vulnerability": "Lower relative healthcare access vulnerability.",
-        "Moderate Vulnerability": "Moderate relative healthcare access vulnerability; continued monitoring and targeted local review may be appropriate.",
-        "High Vulnerability": "Elevated healthcare access vulnerability; county may warrant focused access and disease-burden planning.",
-        "Very High Vulnerability": "Highest relative healthcare access vulnerability; county may warrant urgent review for resource targeting and intervention planning."
+        "Moderate Vulnerability": "Moderate relative healthcare access vulnerability.",
+        "High Vulnerability": "Elevated relative healthcare access vulnerability; may warrant closer local review.",
+        "Very High Vulnerability": "Highest relative healthcare access vulnerability; may warrant priority local review alongside other data."
     }
     colors = {
         "Low Vulnerability": "#166534",
@@ -1118,6 +1163,11 @@ def make_havi_level_table(data):
     return pd.DataFrame(rows)
 
 st.markdown(make_havi_level_table(df).to_html(classes="havi-table", index=False, escape=False), unsafe_allow_html=True)
+st.caption(
+    "Categories are based on Jenks natural breaks of the 0–100 HAVI score. They are descriptive groupings, "
+    "not clinical or policy thresholds, and counties near a boundary may shift category under alternative "
+    "weighting choices."
+)
 
 # -----------------------------
 # HAVI variables table
@@ -1132,12 +1182,15 @@ variable_rows = []
 
 def add_row(factor, county_value, median_value, mean_value):
     meta = factor_metadata.get(factor, {})
+    definition = meta.get("definition", "Shown for county context.")
+    if meta.get("source"):
+        definition = f"{definition} <i>Source: {meta['source']}.</i>"
     variable_rows.append({
         "Measure": factor,
         "County Value": county_value,
         "Typical U.S. County (Median)": median_value,
         "U.S. Average (Mean - HAVI Reference)": mean_value,
-        "Definition": meta.get("definition", "Shown for county context.")
+        "Definition": definition
     })
 
 def median_pct(col):
@@ -1167,7 +1220,6 @@ if "popn_est_24" in df.columns:
     )
 
 access_rows = [
-   # ("Healthcare Access Vulnerability Index", "HAVI", lambda r, c: fmt_score(safe_get(r, c)), lambda c: fmt_score(NATIONAL_MEDIAN.get(c, np.nan)), lambda c: fmt_score(NATIONAL_MEAN.get(c, np.nan))),
     ("Older Adults (≥65 Years)", "ACS_PCT_AGE_ABOVE65", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
     ("Young Children (<5 Years)", "ACS_PCT_AGE_0_4", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
     ("Population with Disabilities", "ACS_PCT_DISABLE", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
@@ -1180,20 +1232,22 @@ access_rows = [
     ("Households Without Internet", "ACS_PCT_HH_NO_INTERNET", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
     ("Housing Cost Burden", "ACS_PCT_RENTER_HU_COST_30PCT", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
     ("Uninsured Population", "ACS_PCT_UNINSURED", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
+    ("Adults Without a High School Diploma", "ACS_PCT_LT_HS", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
     ("Primary Care Provider Availability", "primary_care_providers_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "providers per 10,000 residents"), lambda c: median_rate(c, "providers per 10,000 residents"), lambda c: mean_rate(c, "providers per 10,000 residents")),
     ("Dentist Availability", "dentists_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "dentists per 10,000 residents"), lambda c: median_rate(c, "dentists per 10,000 residents"), lambda c: mean_rate(c, "dentists per 10,000 residents")),
     ("Mental Health Provider Availability", "mental_health_providers_per_10k", lambda r, c: fmt_rate(safe_get(r, c), "mental health providers per 10,000 residents"), lambda c: median_rate(c, "mental health providers per 10,000 residents"), lambda c: mean_rate(c, "mental health providers per 10,000 residents")),
     ("Hospital Bed Capacity", "beds_per_1000", lambda r, c: fmt_count_with_rate(r, "hosp_beds_23", c, "bed", "beds", "per 1,000 residents"), lambda c: median_rate(c, "beds per 1,000 residents"), lambda c: mean_rate(c, "beds per 1,000 residents")),
-    ("Hospital Availability", "hospitals_per_100k", lambda r, c: fmt_count_with_rate(r, "hosp_23", c, "hospital", "hospitals", "per 100,000 residents"), lambda c: median_rate(c, "hospitals per 100,000 residents"), lambda c: mean_rate(c, "hospitals per 100,000 residents")),
+    ("Hospital Availability", "hospitals_per_100k", lambda r, c: fmt_hospitals(r, c), lambda c: median_rate(c, "hospitals per 100,000 residents"), lambda c: mean_rate(c, "hospitals per 100,000 residents")),
     ("Rural Health Clinic (RHC) Availability", "clinics_per_100k", lambda r, c: fmt_count_with_rate(r, "rural_hlth_clincs_24", c, "rural health clinic", "rural health clinics", "per 100,000 residents"), lambda c: median_rate(c, "clinics per 100,000 residents"), lambda c: mean_rate(c, "clinics per 100,000 residents")),
     ("Critical Access Hospital Availability", "critical_access_per_100k", lambda r, c: fmt_count_with_rate(r, "critcl_access_hosp_23", c, "critical access hospital", "critical access hospitals", "per 100,000 residents"), lambda c: median_small_rate(c, "critical access hospitals per 100,000 residents"), lambda c: mean_small_rate(c, "critical access hospitals per 100,000 residents")),
     ("FQHC Availability", "POS_FQHC_RATE", lambda r, c: fmt_fqhc_per_100k(safe_get(r, c)), lambda c: fmt_fqhc_per_100k(NATIONAL_MEDIAN.get(c, np.nan)), lambda c: fmt_fqhc_per_100k(NATIONAL_MEAN.get(c, np.nan))),
+    ("Nursing Home Bed Capacity", "nursing_home_beds_per_1000_65plus", lambda r, c: fmt_nursing_home_beds(r, c), lambda c: median_rate(c, "beds per 1,000 residents aged ≥65"), lambda c: mean_rate(c, "beds per 1,000 residents aged ≥65")),
     ("Rural Population (%)", "rural_pct", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
     ("Language Access Barriers", "ACS_PCT_HH_LIMIT_ENGLISH", lambda r, c: fmt_pct(safe_get(r, c)), median_pct, mean_pct),
 ]
 
 for label, col, county_formatter, median_formatter, mean_formatter in access_rows:
-    if is_urban_or_semiurban(selected) and label in rural_specific_factors:
+    if is_urban_suburban(selected) and label in rural_specific_factors:
         continue
 
     if col in df.columns:
@@ -1217,13 +1271,15 @@ st.markdown(
     """
 **Interpretation Notes**
 
-- **HAVI measures** are shown as county values alongside the median for a typical U.S. county and the national mean used as the HAVI standardization reference. The **Definition** column provides additional context for interpreting each variable.
+- **HAVI measures** are shown as county values alongside the median for a typical U.S. county and the national mean used as the HAVI standardization reference. The **Definition** column gives context and the data source for each measure.
 
 - **Transportation Vulnerability (Vehicle & Transit)** is one engineered HAVI indicator. Household no-vehicle access and public transit use are shown separately for context, but are not counted as two independent HAVI indicators.
 
-- **Chronic Disease Burden** is an engineered healthcare need variable that summarizes multiple CDC PLACES chronic disease measures into a single composite index. Individual disease measures are displayed separately below under **Disease Burden Variables**.
+- **Chronic Disease Burden** is an engineered healthcare need indicator that summarizes ten CDC PLACES chronic disease measures into a single composite. Individual disease measures are displayed below under **Disease Burden Variables**.
 
-- **Rural-specific supply variables** — Rural Health Clinic Availability and Critical Access Hospital Availability — are displayed only for rural-classified counties because they are not applied to HAVI scoring for Urban/Semi-Urban counties.
+- **Rural-specific supply indicators** (Rural Health Clinic and Critical Access Hospital Availability) are shown only for Semi-Rural/Rural counties because they are not scored for Urban/Suburban counties. In Semi-Rural/Rural counties, the hospital count excludes Critical Access Hospitals so that each hospital is counted once.
+
+- **Connecticut** values for some facility and provider counts are estimates reallocated from the state's former counties to its nine planning regions. FQHC availability and distance to the nearest clinic are not available for the planning regions and were assigned the national median in HAVI scoring.
 """
 )
 # -----------------------------
@@ -1235,6 +1291,12 @@ st.markdown(
     These variables come from CDC PLACES modeled health outcome estimates and describe estimated chronic disease prevalence for the selected county. They are shown here as direct county values with national county medians and means for comparison.
     """
 )
+
+if state in PLACES_IMPUTED_STATES or selected_fips in PLACES_IMPUTED_FIPS:
+    st.warning(
+        "CDC PLACES did not publish 2025 estimates for this county. The disease values shown here are "
+        "model-based estimates developed for HAVI from county social and health characteristics."
+    )
 
 if len(disease_cols) > 0:
     disease_table = pd.DataFrame({
@@ -1259,47 +1321,57 @@ st.markdown("## HAVI Methodology")
 st.markdown("""
 The **Healthcare Access Vulnerability Index (HAVI)** is a county-level measure designed to identify communities where residents may face greater difficulty accessing timely healthcare.
 
-HAVI does not measure healthcare access using a single factor. Instead, it combines healthcare availability, population healthcare need, and social or structural conditions that may increase the risk of unmet healthcare needs.
+HAVI does not measure healthcare access using a single factor. Instead, it combines **23 indicators** describing healthcare availability, population healthcare need, and social or structural conditions that may increase the risk of unmet healthcare needs.
 
 ### What HAVI Measures
 
 HAVI includes three domains:
 
-- **Healthcare Supply (25%)** measures the availability of healthcare resources, including primary care providers, dentists, mental health providers, hospital beds, hospitals, and Federally Qualified Health Centers. Rural Health Clinics and Critical Access Hospitals are included only for rural-classified counties to better reflect rural healthcare infrastructure.
+- **Healthcare Supply (25%; 9 indicators)** measures the availability of healthcare resources: primary care providers, mental health providers, dentists, hospital beds, hospitals, Federally Qualified Health Centers, nursing home beds, Rural Health Clinics, and Critical Access Hospitals. Rural Health Clinics and Critical Access Hospitals are scored only for Semi-Rural/Rural counties, and in those counties the hospital count excludes Critical Access Hospitals so that no hospital is counted twice.
 
-- **Healthcare Demand (25%)** measures expected healthcare need using the proportion of older adults, children under age 5, people with disabilities, and the county's overall chronic disease burden.
+- **Healthcare Demand (25%; 4 indicators)** measures expected healthcare need using the proportion of older adults, children under age 5, people with disabilities, and the county's overall chronic disease burden.
 
-- **Social and Structural Vulnerability (50%)** measures conditions that may make healthcare more difficult to obtain, including poverty, unemployment, housing cost burden, lack of internet access, lack of health insurance, limited English proficiency, rurality, transportation barriers, and distance to the nearest clinic.
+- **Social and Structural Vulnerability (50%; 10 indicators)** measures conditions that may make healthcare more difficult to obtain: poverty, unemployment, housing cost burden, lack of internet access, lack of health insurance, limited English proficiency, adults without a high school diploma, rurality, transportation barriers, and distance to the nearest clinic.
+
+### Urban–Rural Groups
+
+Counties are grouped using the 2023 National Center for Health Statistics (NCHS) Urban–Rural Classification Scheme: **Urban/Suburban** = metropolitan counties (codes 1–4: large central, large fringe, medium, and small metro); **Semi-Rural/Rural** = nonmetropolitan counties (codes 5–6: micropolitan and noncore).
 
 ### Engineered Measures
 
-- **Transportation Vulnerability** combines the percentage of households without a vehicle with public transit use to represent transportation-related access barriers.
+- **Transportation Vulnerability** is an engineered proxy combining the percentage of households without a vehicle with public transit use, which may partly offset the lack of a vehicle.
 
-- **Chronic Disease Burden** summarizes the prevalence of multiple chronic conditions reported in the CDC PLACES dataset. It is included within the Healthcare Demand domain because greater disease burden increases the need for healthcare services.
+- **Chronic Disease Burden** is the average national percentile rank across ten chronic conditions from CDC PLACES. PLACES did not publish 2025 estimates for counties in Kentucky and Pennsylvania or for Loving County, Texas; for these 188 counties, disease values were estimated with regression models based on county characteristics.
 
 ### How HAVI Is Calculated
 
-Variables are standardized using national county-level distributions so that measures with different units can be compared on a common scale. Each variable is aligned so that higher values consistently represent greater healthcare access vulnerability.
+Indicators are capped at the 1st and 99th percentiles and standardized against the national county distribution so that measures with different units can be compared on a common scale. Each indicator is aligned so that higher values consistently represent greater healthcare access vulnerability.
 
-Variables are averaged within their respective domains and combined using the following weights:
+Indicators are averaged within their domains and combined using the following weights:
 
 - **25% Healthcare Supply**
 - **25% Healthcare Demand**
 - **50% Social and Structural Vulnerability**
 
-Final HAVI scores are rescaled to a **0–100 national scale**, where higher scores indicate greater relative healthcare access vulnerability compared with other U.S. counties.
+The 50% weight for social and structural conditions is informed by the County Health Rankings & Roadmaps model; the weights are a conceptual choice rather than statistically derived. Final HAVI scores are rescaled to a **0–100 national scale**, where higher scores indicate greater relative healthcare access vulnerability compared with other U.S. counties.
+
+### How HAVI Was Evaluated
+
+- Counties designated as countywide **Medically Underserved Areas** had substantially higher HAVI scores than other counties.
+- Higher HAVI scores were associated with **fewer dental visits, lower cancer and cholesterol screening, and more preventable hospitalizations** for acute conditions, including when comparing counties within the same state.
+- County rankings stayed **very similar under alternative weighting choices**, although some counties near category boundaries changed category.
 
 ### Data Sources
 
-HAVI was developed using **publicly available county-level datasets** from multiple U.S. government agencies.
+HAVI was developed using **publicly available county-level datasets** from U.S. government agencies.
 
-- **Area Health Resources Files (AHRF) 2024–2025** – healthcare workforce, hospitals, healthcare infrastructure, and selected demographic measures.
-- **Agency for Healthcare Research and Quality (AHRQ) Social Determinants of Health Database 2025** – social determinants of health, healthcare access, and population characteristics.
-- **Centers for Disease Control and Prevention (CDC) PLACES 2025** – county-level chronic disease prevalence estimates used to develop the Chronic Disease Burden measure.
-- **National Center for Health Statistics (NCHS)** – urban-rural county classification used to account for differences in rural healthcare infrastructure.
-- **HRSA Data Warehouse** – countywide Medically Underserved Area (MUA) designation and Index of Medical Underservice (IMU) scores used for HAVI validation.
+- **Area Health Resources Files (AHRF) 2025** – healthcare workforce, hospitals and other facilities, and selected demographic measures.
+- **Agency for Healthcare Research and Quality (AHRQ) Community-Level Health Database (formerly the Social Determinants of Health Database), 2023 county file** – social determinants of health, mental health providers, FQHCs, distance to clinics, and population characteristics. Labeled "AHRQ SDOH 2023" in this dashboard.
+- **Centers for Disease Control and Prevention (CDC) PLACES 2025** – county-level chronic disease prevalence estimates used for the Chronic Disease Burden indicator.
+- **National Center for Health Statistics (NCHS) 2023 Urban–Rural Classification Scheme** – used to group counties and to apply rural-specific supply indicators.
+- **HRSA Data Warehouse** – countywide Medically Underserved Area (MUA) designations and Index of Medical Underservice (IMU) scores, used only to evaluate HAVI.
 
-All datasets are publicly available and contain county-level information for the United States. The source variables have different reference years; the dashboard is not a real-time measure.
+The source variables have different reference years; HAVI is a cross-sectional snapshot, not a real-time measure.
 """)
 
 # -----------------------------
@@ -1309,15 +1381,15 @@ st.markdown("## How to Use This Dashboard")
 
 st.markdown(
     """
-    HAVI is intended to support public health planning, community needs assessment, grant development, resource prioritization, and communication about county-level healthcare access vulnerability.
+    HAVI is intended to support public health planning, community needs assessment, grant development, and communication about county-level healthcare access vulnerability.
 
     **Higher HAVI scores** indicate counties where limited healthcare resources, greater healthcare need, and social or structural barriers may combine to create greater difficulty accessing timely care.
 
     **Lower HAVI scores** indicate comparatively lower healthcare access vulnerability.
 
-    **Recommended use:** HAVI should be used as a screening and planning tool to identify counties that may benefit from closer review, additional local assessment, or targeted healthcare access interventions.
+    **Recommended use:** HAVI should be used as a screening and planning tool to identify counties that may benefit from closer review and additional local assessment.
 
-    **Important limitations:** HAVI describes relative county-level patterns and does not measure individual access to care. It should not be interpreted as a clinical tool, a definitive designation of medical underservice, or proof that any individual factor caused a county's outcomes. Results should be interpreted alongside local data, community knowledge, stakeholder input, and other established measures of healthcare access.
+    **Important limitations:** HAVI describes relative county-level patterns and does not measure individual access to care or differences within a county. It should not be interpreted as a clinical tool, a definitive designation of medical underservice, or proof that any individual factor caused a county's outcomes. Results should be interpreted alongside local data, community knowledge, stakeholder input, and other established measures of healthcare access.
     """
 )
 
@@ -1325,7 +1397,7 @@ st.info(
     """
     **Project Disclosure**
 
-    HAVI was developed by **Ali Abidi** as an independent high school research project using publicly available data from multiple U.S. government agencies.
+    HAVI was developed by **Ali Abidi** as an independent high school research project using publicly available data from multiple U.S. government agencies. This dashboard is a research prototype.
 
     The methodology was designed to support research, education, community health assessment, and public health planning. HAVI is intended to complement—not replace—local expertise, community assessment, and established public health resources. It should not be used as the sole basis for clinical, funding, policy, or resource-allocation decisions.
     """
