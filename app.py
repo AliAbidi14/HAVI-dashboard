@@ -489,6 +489,73 @@ havi_reference_vars = [c for c in havi_reference_vars if c in df.columns]
 NATIONAL_MEDIAN = df[havi_reference_vars].median(numeric_only=True).to_dict()
 NATIONAL_MEAN = df[havi_reference_vars].mean(numeric_only=True).to_dict()
 
+# -----------------------------
+# Standardized indicator values ("Distance from national average" chart view)
+# -----------------------------
+# Same steps as HAVI construction: median imputation, winsorization at the
+# 1st/99th percentiles, z-score across all counties, and supply indicators
+# reversed so that positive values always mean higher vulnerability.
+# Candidate column names are listed in order of preference.
+HAVI_SUPPLY_VARS = {
+    "primary_care_providers_per_10k": ["primary_care_providers_per_10k", "providers_per_10k"],
+    "dentists_per_10k": ["dentists_per_10k"],
+    "mental_health_providers_per_10k": ["mental_health_providers_per_10k"],
+    "beds_per_1000": ["beds_per_1000"],
+    "hospitals_per_100k": ["hospitals_per_100k"],
+    "POS_FQHC_RATE": ["POS_FQHC_RATE"],
+    "nursing_home_beds_per_1000_65plus": ["nursing_home_beds_per_1000_65plus"],
+    "clinics_per_100k": ["clinics_per_100k"],
+    "critical_access_per_100k": ["critical_access_per_100k"],
+}
+HAVI_OTHER_VARS = {
+    "ACS_PCT_AGE_ABOVE65": ["ACS_PCT_AGE_ABOVE65"],
+    "disease_burden_composite": ["disease_burden_composite"],
+    "ACS_PCT_AGE_0_4": ["ACS_PCT_AGE_0_4"],
+    "ACS_PCT_DISABLE": ["ACS_PCT_DISABLE"],
+    "pers_povty_pct_23": ["pers_povty_pct_23"],
+    "ACS_PCT_UNEMPLOY": ["ACS_PCT_UNEMPLOY"],
+    "ACS_PCT_RENTER_HU_COST_30PCT": ["ACS_PCT_RENTER_HU_COST_30PCT"],
+    "ACS_PCT_HH_NO_INTERNET": ["ACS_PCT_HH_NO_INTERNET"],
+    "rural_pct": ["rural_pct"],
+    "ACS_PCT_HH_LIMIT_ENGLISH": ["ACS_PCT_HH_LIMIT_ENGLISH"],
+    "ACS_PCT_LT_HS": ["ACS_PCT_LT_HS"],
+    "ACS_PCT_UNINSURED": ["ACS_PCT_UNINSURED"],
+    "transport_vulnerability": ["transport_vulnerability"],
+    "POS_MEDIAN_DIST_CLINIC": ["POS_MEDIAN_DIST_CLINIC", "POS_MEDIAN_DIST_CLINIC_w"],
+}
+
+
+@st.cache_data
+def compute_standardized(data):
+    """Direction-adjusted z-scores for the 23 HAVI indicators (rows indexed by FIPS).
+
+    Uses the pipeline's own '<indicator>_havi' columns when the master file has them;
+    otherwise recomputes them from the raw indicator columns. Returns None if an
+    indicator cannot be found, so the chart falls back to the contribution view only.
+    """
+    scored = data[data["HAVI Score"].notna()]
+    z = pd.DataFrame(index=scored["FIPS"].values)
+    for var, candidates in {**HAVI_SUPPLY_VARS, **HAVI_OTHER_VARS}.items():
+        havi_col = next((f"{c}_havi" for c in candidates if f"{c}_havi" in scored.columns), None)
+        if havi_col is not None:
+            z[var] = pd.to_numeric(scored[havi_col], errors="coerce").values
+            continue
+        raw_col = next((c for c in candidates if c in scored.columns), None)
+        if raw_col is None:
+            return None
+        x = pd.to_numeric(scored[raw_col], errors="coerce")
+        x = x.fillna(x.median())
+        x = x.clip(lower=x.quantile(0.01), upper=x.quantile(0.99))
+        sd = x.std()
+        if not sd or pd.isna(sd):
+            return None
+        zc = (x - x.mean()) / sd
+        z[var] = (-zc if var in HAVI_SUPPLY_VARS else zc).values
+    return z
+
+
+STANDARDIZED = compute_standardized(df)
+
 disease_var_map = {
     "arthritis_pct": "Arthritis",
     "asthma_pct": "Current Asthma",
@@ -837,49 +904,37 @@ if len(factor_df) > 0 and is_urban_suburban(selected):
 
 st.markdown("## Factors Contributing to This County's HAVI Score")
 
-if len(factor_df) > 0:
-    factor_df["Direction"] = factor_df["Contribution (%)"].apply(
-        lambda x: "Increases HAVI Score (factors associated with higher healthcare access vulnerability for this county)"
-        if x > 0
-        else ("Decreases HAVI Score (factors associated with lower healthcare access vulnerability for this county)"
-              if x < 0 else "No contribution to HAVI Score")
+VIEW_CONTRIB = "Contribution to HAVI score"
+VIEW_STD = "Distance from national average"
+
+
+def render_factor_chart(plot_df, value_col, label_fmt, axis_title, pos_name, neg_name,
+                        pos_short, neg_short, hover_value_line):
+    """Horizontal bar chart used by both views: green bars on top, red bars below."""
+    plot_df = plot_df.copy()
+    plot_df["Direction"] = plot_df[value_col].apply(
+        lambda x: pos_name if x > 0 else (neg_name if x < 0 else "No difference")
     )
-
-    factor_df["Direction Short"] = factor_df["Contribution (%)"].apply(
-        lambda x: (
-            "Associated with Higher Healthcare Access Vulnerability" if x > 0
-            else ("Associated with Lower Healthcare Access Vulnerability" if x < 0
-                  else "No contribution within the HAVI model")
-        )
+    plot_df["Direction Short"] = plot_df[value_col].apply(
+        lambda x: pos_short if x > 0 else (neg_short if x < 0 else "No difference")
     )
+    plot_df["Label"] = plot_df[value_col].apply(label_fmt)
 
-    factor_df["Label"] = factor_df["Contribution (%)"].apply(lambda x: f"{x:+.1f}%")
+    # Green/negative bars appear at the top and red/positive bars below them.
+    neg = plot_df[plot_df[value_col] < 0].sort_values(value_col, ascending=True)
+    pos = plot_df[plot_df[value_col] >= 0].sort_values(value_col, ascending=True)
+    plot_df = pd.concat([neg, pos], ignore_index=True)
+    factor_order = plot_df["Factor"].tolist()
 
-    # Order the chart so green/negative contributors appear at the top
-    # and red/positive contributors appear below them.
-    neg = (
-        factor_df[factor_df["Contribution (%)"] < 0]
-        .sort_values("Contribution (%)", ascending=True)
-    )
-
-    pos = (
-        factor_df[factor_df["Contribution (%)"] >= 0]
-        .sort_values("Contribution (%)", ascending=True)
-    )
-
-    factor_df = pd.concat([neg, pos], ignore_index=True)
-    factor_order = factor_df["Factor"].tolist()
-
-    # Add horizontal padding around the longest bar so outside value labels
-    # remain inside the plotting region instead of spilling into factor names.
-    max_abs_contribution = factor_df["Contribution (%)"].abs().max()
-    if pd.isna(max_abs_contribution) or max_abs_contribution == 0:
-        max_abs_contribution = 1.0
-    x_axis_limit = float(max_abs_contribution) * 1.35
+    # Padding around the longest bar so outside value labels stay inside the plot.
+    max_abs = plot_df[value_col].abs().max()
+    if pd.isna(max_abs) or max_abs == 0:
+        max_abs = 1.0
+    x_axis_limit = float(max_abs) * 1.35
 
     fig = px.bar(
-        factor_df,
-        x="Contribution (%)",
+        plot_df,
+        x=value_col,
         y="Factor",
         orientation="h",
         text="Label",
@@ -892,9 +947,9 @@ if len(factor_df) > 0:
             "Details"
         ],
         color_discrete_map={
-            "Increases HAVI Score (factors associated with higher healthcare access vulnerability for this county)": "#dc2626",
-            "Decreases HAVI Score (factors associated with lower healthcare access vulnerability for this county)": "#16a34a",
-            "No contribution to HAVI Score": "#6b7280"
+            pos_name: "#dc2626",
+            neg_name: "#16a34a",
+            "No difference": "#6b7280"
         },
     )
 
@@ -907,7 +962,7 @@ if len(factor_df) > 0:
         hovertemplate=(
             "<b>%{y}</b><br>"
             "%{customdata[0]}<br>"
-            "Relative contribution share: %{x:.1f}%<br>"
+            + hover_value_line + "<br>"
             "County value: %{customdata[1]}<br>"
             "Typical U.S. county median: %{customdata[2]}<br>"
             "U.S. average mean (HAVI reference): %{customdata[3]}<br>"
@@ -916,7 +971,7 @@ if len(factor_df) > 0:
         )
     )
     fig.update_layout(
-        height=max(560, 34 * len(factor_df) + 160),
+        height=max(560, 34 * len(plot_df) + 160),
         yaxis_title="",
         margin=dict(l=30, r=55, t=70, b=100),
         plot_bgcolor="rgba(0,0,0,0)",
@@ -929,7 +984,7 @@ if len(factor_df) > 0:
             automargin=True
         ),
         xaxis=dict(
-            title=dict(text="Relative Contribution Share (%)", font=dict(size=22, color="#111827")),
+            title=dict(text=axis_title, font=dict(size=22, color="#111827")),
             tickfont=dict(size=14, color="#374151"),
             range=[-x_axis_limit, x_axis_limit],
             automargin=True,
@@ -946,12 +1001,90 @@ if len(factor_df) > 0:
             "responsive": True
         }
     )
-    st.caption(
-        "Terminology: 'Factors' on this chart means the indicators used in the HAVI "
-        "framework, including composite indicators built from multiple data inputs. "
-        "Percentages are relative contribution shares within the HAVI scoring model; "
-        "they do not establish causal effects."
-    )
+
+
+if len(factor_df) > 0:
+    # Standardized values for the selected county, matched to the chart's factors.
+    std_available = False
+    if STANDARDIZED is not None and selected_fips in STANDARDIZED.index:
+        z_row = STANDARDIZED.loc[selected_fips]
+        if isinstance(z_row, pd.DataFrame):
+            z_row = z_row.iloc[0]
+        factor_df["Standardized (SD)"] = factor_df["Factor"].map(
+            lambda lab: z_row.get(label_to_col.get(lab), np.nan)
+        )
+        z_vals = factor_df["Standardized (SD)"]
+        contrib_vals = factor_df["Contribution (%)"]
+        # Weights are positive, so each standardized value must have the same sign as its
+        # contribution. Offer the second view only if every factor matches.
+        both_nonzero = (z_vals.abs() > 1e-9) & (contrib_vals.abs() > 1e-9)
+        std_available = bool(
+            z_vals.notna().all()
+            and (np.sign(z_vals[both_nonzero]) == np.sign(contrib_vals[both_nonzero])).all()
+        )
+
+    if std_available:
+        view = st.radio(
+            "Chart view",
+            [VIEW_CONTRIB, VIEW_STD],
+            horizontal=True,
+            label_visibility="collapsed",
+            help="Contribution to HAVI score: how much each factor adds to or subtracts from this county's score, "
+                 "using HAVI's weights. Distance from national average: how far the county is from the average "
+                 "U.S. county on each factor, without weights."
+        )
+    else:
+        view = VIEW_CONTRIB
+
+    if view == VIEW_CONTRIB:
+        render_factor_chart(
+            factor_df,
+            value_col="Contribution (%)",
+            label_fmt=lambda x: f"{x:+.1f}%",
+            axis_title="Relative Contribution Share (%)",
+            pos_name="Increases HAVI Score (factors associated with higher healthcare access vulnerability for this county)",
+            neg_name="Decreases HAVI Score (factors associated with lower healthcare access vulnerability for this county)",
+            pos_short="Associated with Higher Healthcare Access Vulnerability",
+            neg_short="Associated with Lower Healthcare Access Vulnerability",
+            hover_value_line="Relative contribution share: %{x:.1f}%"
+        )
+        compare_text = (
+            "compare them with the <b>Distance from national average</b> view, the county values in the table below, and local knowledge"
+            if std_available else
+            "compare them with the county values in the table below and with local knowledge"
+        )
+        st.markdown(
+            """
+<span style="color:#dc2626;"><b>Red</b></span> bars show factors that <b>raise</b> this county's HAVI score compared with the national average; <span style="color:#16a34a;"><b>green</b></span> bars show factors that <b>lower</b> it. Each percentage is that factor's share of all the bars combined (red and green together add up to 100%), <b>not</b> how far the county is from the national average. "Factors" are the indicators HAVI uses; some combine several data inputs.""",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"""
+Bar lengths combine how far the county is from the national average with how much each factor counts in HAVI: 25% healthcare resources, 25% population health needs, and 50% social and structural barriers. Because these groups contain different numbers of factors, factors in smaller groups count more each. For example, a population health needs factor counts about 1.75 times as much as a healthcare resources factor (2.25 times in Semi-Rural/Rural counties). The bars show how each factor shapes the HAVI score, not its importance or causal effect on its own; {compare_text}. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are counted only in Semi-Rural/Rural counties.""",
+            unsafe_allow_html=True
+        )
+    else:
+        render_factor_chart(
+            factor_df,
+            value_col="Standardized (SD)",
+            label_fmt=lambda x: f"{x:+.1f} SD",
+            axis_title="Distance from National Average (standard deviations)",
+            pos_name="Less favorable than the national average (associated with higher healthcare access vulnerability)",
+            neg_name="More favorable than the national average (associated with lower healthcare access vulnerability)",
+            pos_short="Less favorable than the national average",
+            neg_short="More favorable than the national average",
+            hover_value_line="Distance from national average: %{x:+.2f} SD"
+        )
+        st.markdown(
+            """
+<span style="color:#dc2626;"><b>Red</b></span> bars show factors where this county is <b>less favorable</b> than the average U.S. county; <span style="color:#16a34a;"><b>green</b></span> bars show factors where it is <b>more favorable</b>. Bar length is the distance from the national county average in standard deviations (SD): +1.0 SD means the county is one standard deviation less favorable than the average county. For healthcare resources, fewer resources than average show as red.""",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            """
+This view does not use HAVI's weights, so factors can be compared directly with each other. It shows how unusual each value is compared with other U.S. counties, not how much it matters for health or how much it affects the HAVI score; use the <b>Contribution to HAVI score</b> view for that. As in HAVI, extreme values are capped at the 1st and 99th percentiles. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are shown only for Semi-Rural/Rural counties.""",
+            unsafe_allow_html=True
+        )
 else:
     st.info(f"No contribution data were found. Make sure {CONTRIB_LONG_FILE} is in the same folder as app.py, or that the master file contains columns ending in _signed_pct_contribution.")
 
@@ -1118,11 +1251,6 @@ factor_metadata = {
     }
 }
 
-st.markdown(
-    """
-<span style="color:#16a34a;"><b>Green</b></span> bars represent factors that <b>lower this county's HAVI Score</b>, while <span style="color:#dc2626;"><b>red</b></span> bars represent factors that <b>raise this county's HAVI Score.</b> The percentage shown for each factor is its <b>relative contribution share</b>: its share of the total absolute contribution of all indicators to this county's HAVI score. It does <b>not</b> represent the percent difference between the county value and the national average or median. Contributions are calculated from each county's <b>standardized value relative to the national mean</b>, adjusted for factor direction and HAVI domain weighting. Because the four demand indicators share 25% of the weight, each carries more weight than an individual supply or social indicator, so demand factors appear more often as large contributors. These contributions reflect the HAVI scoring framework rather than evidence of direct causation and should be interpreted alongside the county's raw values, national reference values, and local context. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are shown only for Semi-Rural/Rural counties because these rural-specific resources are not scored for Urban/Suburban counties.""",
-    unsafe_allow_html=True
-)
 
 # -----------------------------
 # HAVI level reference
