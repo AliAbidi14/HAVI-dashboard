@@ -904,8 +904,8 @@ if len(factor_df) > 0 and is_urban_suburban(selected):
 
 st.markdown("## Factors Contributing to This County's HAVI Score")
 
-VIEW_CONTRIB = "Contribution to HAVI score"
-VIEW_STD = "Distance from national average"
+VIEW_CONTRIB = "Contribution to HAVI score (how each indicator affects the score)"
+VIEW_STD = "Distance from national average (how much each indicator differs from the average U.S. county)"
 
 
 def render_factor_chart(plot_df, value_col, label_fmt, axis_title, pos_name, neg_name,
@@ -1082,7 +1082,7 @@ Bar lengths combine how far the county is from the national average with how muc
         )
         st.markdown(
             """
-This view does not use HAVI's weights, so factors can be compared directly with each other. It shows how unusual each value is compared with other U.S. counties, not how much it matters for health or how much it affects the HAVI score; use the <b>Contribution to HAVI score</b> view for that. As in HAVI, extreme values are capped at the 1st and 99th percentiles. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are shown only for Semi-Rural/Rural counties.""",
+This view does not use HAVI's weights, allowing indicators to be compared on a common standardized scale. It shows how unusual each value is compared with other U.S. counties, not how much it matters for health or how much it affects the HAVI score; use the <b>Contribution to HAVI score</b> view for that. As in HAVI, extreme values are capped at the 1st and 99th percentiles. <b>Rural Health Clinic (RHC) Availability</b> and <b>Critical Access Hospital Availability</b> are shown only for Semi-Rural/Rural counties.""",
             unsafe_allow_html=True
         )
 else:
