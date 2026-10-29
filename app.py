@@ -971,9 +971,9 @@ def render_factor_chart(plot_df, value_col, label_fmt, axis_title, pos_name, neg
         )
     )
     fig.update_layout(
-        height=max(560, 34 * len(plot_df) + 160),
+        height=max(510, 34 * len(plot_df) + 110),  # 50 px less, matching the smaller top margin
         yaxis_title="",
-        margin=dict(l=30, r=55, t=70, b=100),
+        margin=dict(l=30, r=55, t=20, b=100),  # top margin reduced from 70 to 20 px
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(size=18),
