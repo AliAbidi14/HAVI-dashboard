@@ -2,8 +2,8 @@ name: Keep Streamlit App Awake
 
 on:
   schedule:
-    # Runs every 8 hours, at 17 minutes past the hour
-    - cron: "17 */8 * * *"
+    # Runs every 4 hours, at 17 minutes past the hour
+    - cron: "17 */4 * * *"
 
   # Allows you to test it manually
   workflow_dispatch:
